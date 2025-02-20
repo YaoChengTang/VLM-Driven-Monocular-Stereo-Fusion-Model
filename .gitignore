@@ -11,3 +11,6 @@ build/
 *.egg-info/
 dist/
 datasets/
+
+Depth-Anything-V2/
+mast3r/

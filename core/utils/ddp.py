@@ -90,7 +90,7 @@ def reduce_tensors(*tensors, world_size):
     return [reduce_tensor(tensor, world_size) for tensor in tensors]
 
 
-def get_loader(dataset, args):
+def get_loader(dataset, args, data_sampler=None):
     """
         create dataset from ground-truth
         return a batch sampler based ont the dataset
@@ -98,7 +98,8 @@ def get_loader(dataset, args):
     if args.distributed:
         if args.local_rank == 0:
             print('use distributed sampler')
-        data_sampler = DS(dataset, shuffle=True, drop_last=True)
+        if data_sampler is None:
+            data_sampler = DS(dataset, shuffle=True, drop_last=True)
         data_loader = DataLoader(dataset,
                                 batch_size=args.batch_size, 
                                 sampler=data_sampler,

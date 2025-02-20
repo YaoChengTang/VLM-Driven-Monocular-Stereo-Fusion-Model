@@ -132,6 +132,17 @@ def writeDispKITTI(filename, disp):
     # skimage.io.imsave(filename, disp)
     cv2.imwrite(filename, disp)
 
+def readDispFooling3D(filename):
+    disp = cv2.imread(filename, cv2.IMREAD_ANYDEPTH)
+    valid = disp > 0.0
+    return disp, valid
+
+def writeDispFooling3D(filename, disp):
+    disp = np.round(disp).astype(np.uint16)
+    # skimage.io.imsave(filename, disp)
+    cv2.imwrite(filename, disp)
+
+
 def readDispCRES(filename):
     try:
         disp = cv2.imread(filename, cv2.IMREAD_ANYDEPTH).astype(np.float32) / 32.0
