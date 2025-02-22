@@ -29,6 +29,7 @@ from core.stereo_datasets import fetch_dataloader
 from core.utils.ddp import ddp_init, ddp_close, get_model_ddp
 from core.utils.utils import LoggerTraining, init_directories, delete_directories_if_static
 from evaluate_stereo_fooling3d import *
+from core.utils.vis import disp_to_colormap
 
 logger = LoggerTraining("TRAIN", None, None)
 
@@ -107,6 +108,12 @@ def train(args):
                 logger.push(metrics)
                 logger.writer.add_scalar("live_loss", loss.item(), global_batch_num)
                 logger.writer.add_scalar(f'learning_rate', optimizer.param_groups[0]['lr'], global_batch_num)
+                if global_batch_num % logger.SUM_FREQ == 0:
+                    logger.writer.add_image('flow_preds', disp_to_colormap(flow_predictions[-1][0].abs()), global_batch_num)
+                    logger.writer.add_image('flow_gt', disp_to_colormap(flow[0].abs()), global_batch_num)
+                    logger.writer.add_image('image1', image1[0]/255, global_batch_num)
+                    logger.writer.add_image('image2', image2[0]/255, global_batch_num)
+                    logger.writer.add_image('valid', valid[0].unsqueeze(0), global_batch_num)
             
             global_batch_num += 1
             scaler.scale(loss).backward()

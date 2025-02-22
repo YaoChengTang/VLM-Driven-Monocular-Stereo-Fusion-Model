@@ -271,6 +271,52 @@ class SparseFlowAugmentor:
 
         return padded_data
 
+    def get_crop_start_point(self, valid, expand_ratio=1/3):
+        # Assume img1, img2, flow, and valid are already defined
+        H, W = valid.shape[:2]
+        crop_h, crop_w = self.crop_size
+
+        # Get coordinates where valid == 1
+        valid_y, valid_x = np.where(valid == 1)
+
+        # Ensure there is a valid region to crop
+        if len(valid_y) == 0 or len(valid_x) == 0:
+            return 0, 0
+
+        # Compute the bounding box of the valid region
+        y_min, y_max = np.min(valid_y), np.max(valid_y)
+        x_min, x_max = np.min(valid_x), np.max(valid_x)
+
+        # Calculate the expansion amount
+        expand_h = int(crop_h * expand_ratio)
+        expand_w = int(crop_w * expand_ratio)
+
+        # Adjust the crop range to allow partial expansion outside the valid region
+        y_min = max(0, y_min - expand_h)  # Expand upward
+        y_max = min(H - crop_h, max(0, y_max - crop_h + expand_h))  # Expand downward
+
+        x_min = max(0, x_min - expand_w)  # Expand leftward
+        x_max = min(W - crop_w, max(0, x_max - crop_w + expand_w))  # Expand rightward
+
+        # Ensure valid range by swapping if needed
+        if y_min > y_max:
+            y_min, y_max = y_max, y_min
+        if x_min > x_max:
+            x_min, x_max = x_max, x_min
+            
+        try:
+            # Ensure the selected crop position is within the adjusted range
+            y0 = np.random.randint(y_min, y_max + 1)
+            x0 = np.random.randint(x_min, x_max + 1)
+        except Exception as err:
+            raise Exception(err, f"y_min: {y_min}, y_max: {y_max}, x_min: {x_min}, x_max: {x_max}, crop_h: {crop_h}, crop_w: {crop_w}, H: {H}, W: {W}, expand_h: {expand_h}, expand_w: {expand_w}, np.min(valid_y): {np.min(valid_y)}, np.max(valid_y): {np.max(valid_y)}, np.min(valid_x): {np.min(valid_x)}, np.max(valid_x): {np.max(valid_x)}")
+            # y_min: 0, y_max: -126, x_min: 524, x_max: 1041, crop_h: 320, crop_w: 736, H: 999, W: 1777, expand_h: 106, expand_w: 245
+        
+        y0 = np.clip(y0, 0, H - crop_h)
+        x0 = np.clip(x0, 0, W - crop_w)
+
+        return x0, y0
+
     def spatial_transform(self, img1, img2, flow, valid):
         # randomly sample scale
 
@@ -305,18 +351,19 @@ class SparseFlowAugmentor:
                 img2 = img2[::-1, :]
                 flow = flow[::-1, :] * [1.0, -1.0]
 
-        margin_y = 20
-        margin_x = 50
-
         img1, img2, flow, valid = self.pad_images(img1, img2, flow, valid)
-        # img1_raw_shape = img1.shape
-        # valid_raw_shape = valid.shape
+        # # img1_raw_shape = img1.shape
+        # # valid_raw_shape = valid.shape
 
-        y0 = np.random.randint(0, img1.shape[0] - self.crop_size[0] + margin_y)
-        x0 = np.random.randint(-margin_x, img1.shape[1] - self.crop_size[1] + margin_x)
+        # margin_y = 20
+        # margin_x = 50
+        # y0 = np.random.randint(0, img1.shape[0] - self.crop_size[0] + margin_y)
+        # x0 = np.random.randint(-margin_x, img1.shape[1] - self.crop_size[1] + margin_x)
 
-        y0 = np.clip(y0, 0, img1.shape[0] - self.crop_size[0])
-        x0 = np.clip(x0, 0, img1.shape[1] - self.crop_size[1])
+        # y0 = np.clip(y0, 0, img1.shape[0] - self.crop_size[0])
+        # x0 = np.clip(x0, 0, img1.shape[1] - self.crop_size[1])
+
+        x0, y0 = self.get_crop_start_point(valid, expand_ratio=1/3)
 
         img1 = img1[y0:y0+self.crop_size[0], x0:x0+self.crop_size[1]]
         img2 = img2[y0:y0+self.crop_size[0], x0:x0+self.crop_size[1]]

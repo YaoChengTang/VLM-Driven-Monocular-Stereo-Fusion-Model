@@ -23,7 +23,7 @@ export NCCL_P2P_DISABLE=1
 # export MASTER_ADDR=127.0.0.1
 # export MASTER_PORT=29501
 # export CUDA_VISIBLE_DEVICES=0,1,2,3
-export CUDA_VISIBLE_DEVICES=5
+export CUDA_VISIBLE_DEVICES=0,1
 
 # "/horizon-bucket/saturn_v_dev/01_users/chengtang.yao/Sceneflow"
 # "/horizon-bucket/saturn_v_dev/01_users/chengtang.yao/Middlebury"

@@ -81,7 +81,13 @@ class StereoDataset(data.Dataset):
                 disp, valid = disp
             else:
                 valid = disp < 512
+        except Exception as err:
+            raise Exception(err, "{}, {}, {}".format(self.image_list[index][0], 
+                                                     self.image_list[index][1], 
+                                                     self.disparity_list[index]),
+                            "{}, {}".format(disp.shape, valid.shape), )
 
+        try:
             img1 = frame_utils.read_gen(self.image_list[index][0])
             img2 = frame_utils.read_gen(self.image_list[index][1])
         
@@ -91,28 +97,28 @@ class StereoDataset(data.Dataset):
             disp = np.array(disp).astype(np.float32)
             flow = np.stack([-disp, np.zeros_like(disp)], axis=-1)
 
+            # Multiply scale factor for Fooling3D dataset
+            if hasattr(self, 'scale_factor'):
+                disp = self.scale_factor[self.image_list[index][1]] * disp
+
+            # grayscale images
+            if len(img1.shape) == 2:
+                img1 = np.tile(img1[...,None], (1, 1, 3))
+                img2 = np.tile(img2[...,None], (1, 1, 3))
+            else:
+                img1 = img1[..., :3]
+                img2 = img2[..., :3]
+
+            if self.augmentor is not None:
+                if self.sparse:
+                    img1, img2, flow, valid = self.augmentor(img1, img2, flow, valid)
+                else:
+                    img1, img2, flow = self.augmentor(img1, img2, flow)
         except Exception as err:
             raise Exception(err, "{}, {}, {}".format(self.image_list[index][0], 
                                                      self.image_list[index][1], 
-                                                     self.disparity_list[index] ))
-
-        # Multiply scale factor for Fooling3D dataset
-        if hasattr(self, 'scale_factor'):
-            disp = self.scale_factor[self.image_list[index][1]] * disp
-
-        # grayscale images
-        if len(img1.shape) == 2:
-            img1 = np.tile(img1[...,None], (1, 1, 3))
-            img2 = np.tile(img2[...,None], (1, 1, 3))
-        else:
-            img1 = img1[..., :3]
-            img2 = img2[..., :3]
-
-        if self.augmentor is not None:
-            if self.sparse:
-                img1, img2, flow, valid = self.augmentor(img1, img2, flow, valid)
-            else:
-                img1, img2, flow = self.augmentor(img1, img2, flow)
+                                                     self.disparity_list[index]),
+                            "{}, {}, {}".format(img1.shape, img2.shape, flow.shape), )
 
         try:
             img1 = torch.from_numpy(img1).permute(2, 0, 1).float()
@@ -426,7 +432,7 @@ class CREStereoDataset(StereoDataset):
 
 class Fooling3DDataset(StereoDataset):
     def __init__(self, aug_params=None, root='datasets/Fooling3D', image_set='training', args=None):
-        super(Fooling3DDataset, self).__init__(aug_params, sparse=False, reader=frame_utils.readDispFooling3D)
+        super(Fooling3DDataset, self).__init__(aug_params, sparse=True, reader=frame_utils.readDispFooling3D)
         assert os.path.exists(root)
         self.root = root
         self.video_frames_info = {}
@@ -613,7 +619,7 @@ def fetch_dataloader(args):
             logging.info(f"Adding {len(new_dataset)} samples from CREStereoDataset")
         elif dataset_name.lower() == 'fooling3d':
             new_dataset = Fooling3DDataset(aug_params, args=args, root='./datasets/Fooling3D')
-            print("+"*10, hasattr(args, 'enable_sampler') and args.enable_sampler)
+            # print("+"*10, hasattr(args, 'enable_sampler') and args.enable_sampler)
             if hasattr(args, 'enable_sampler') and args.enable_sampler:
                 # sampler = Fooling3DBatchSampler(new_dataset, args.batch_size)
                 sampler = DistributedFooling3DBatchSampler(new_dataset, args.batch_size)

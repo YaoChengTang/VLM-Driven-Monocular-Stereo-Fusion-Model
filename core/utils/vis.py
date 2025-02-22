@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import frame_utils as frame_utils
 
+import torch
+
 
 
 def show_imgs(param, sv_img=False, save2where=None, 
@@ -634,3 +636,21 @@ def colorize_improvement_map(improvement_map, ver_hor="hor"):
         colored_map = np.hstack((colored_map, color_bar))
 
     return colored_map.astype(np.uint8)
+
+
+def disp_to_colormap(disp):
+    """
+    Convert a disparity map tensor (1, H, W) to a Jet colormap (3, H, W).
+    """
+    disp = disp.squeeze(0).detach().cpu().numpy()  # Convert to numpy (H, W)
+
+    # Normalize disparity to range [0,1]
+    disp = (disp - disp.min()) / (disp.max() - disp.min() + 1e-6)
+
+    # Convert to colormap using matplotlib
+    disp_colored = plt.cm.jet(disp)[:, :, :3]  # Drop alpha channel (H, W, 3)
+    
+    # Convert to PyTorch tensor (C, H, W)
+    disp_colored = torch.from_numpy(disp_colored).permute(2, 0, 1).float()
+
+    return disp_colored

@@ -1,4 +1,5 @@
 import os
+import glob
 import numpy as np
 from PIL import Image
 from os.path import *
@@ -132,9 +133,114 @@ def writeDispKITTI(filename, disp):
     # skimage.io.imsave(filename, disp)
     cv2.imwrite(filename, disp)
 
+def load_mask_image(path):
+    if not os.path.exists(path):
+        return None
+    mask = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+    if mask is not None:
+        mask[mask>=128] = 255
+        mask[mask<128] = 0
+    return mask
+
+def is_support_unreliable(ill_mask, sup_mask, threshold=0.5):
+    """
+    Determine whether the support region is unreliable due to excessive overlap with the illusion region.
+
+    Parameters:
+    ill_mask (np.ndarray): Binary mask (255 for valid, 0 for invalid) for the illusion region.
+    sup_mask (np.ndarray): Binary mask (255 for valid, 0 for invalid) for the support region.
+    threshold (float): Overlap ratio threshold; default is 0.5 (more overlap than non-overlap).
+
+    Returns:
+    bool: True if support region is unreliable, False otherwise.
+    """
+    # Compute the overlap area
+    overlap_mask = (sup_mask == 255) & (ill_mask == 255)
+    
+    # Count the number of pixels in each region
+    sup_area = np.count_nonzero(sup_mask == 255)
+    overlap_area = np.count_nonzero(overlap_mask)
+
+    # Determine if the support region is unreliable
+    return overlap_area > sup_area * threshold
+
+def loadMaskFooling3D(mask_dir, frame_name, valid):
+    # Acquire mask paths
+    mask_paths = glob.glob( os.path.join(mask_dir, f'{frame_name}*.jpg') )
+
+    # Parse mask information
+    mask_dict  = {}
+    for mask_path in mask_paths:
+        mask_name = os.path.basename(mask_path)
+        info = os.path.splitext(mask_name)[0].split("-")
+        obj_id = info[1]
+        area_type = info[3]
+        if obj_id not in mask_dict:
+            mask_dict[obj_id] = {}
+        mask_dict[obj_id][area_type] = mask_path
+    
+    # Load mask images
+    mask_image_dict = {}
+    area_types = ["illusion", "nonillusion"]
+    obj_id_list = list(mask_dict.keys())
+    for obj_id in obj_id_list:
+        ill_mask_path = mask_dict[obj_id].get(area_types[0])
+        sup_mask_path = mask_dict[obj_id].get(area_types[1])
+
+        # Skip this illusion mask if mask does not exist
+        if ill_mask_path is None or not os.path.exists(ill_mask_path):
+            continue
+
+        ill_mask = load_mask_image(ill_mask_path)
+        # Skip this illusion mask if too few positive values in the mask
+        if ill_mask is None or (ill_mask > 128).sum() < 100:
+            # print(f"Too few positive values in the illusion mask: {ill_mask_path}")
+            continue
+
+        sup_mask = None
+        if sup_mask_path is not None and os.path.exists(sup_mask_path):
+            sup_mask = load_mask_image(sup_mask_path)
+        # The sup_mask is invalid if too few positive values in the mask
+        if sup_mask is not None and (sup_mask > 128).sum() < 100:
+            # print(f"Too few positive values in the support mask: {sup_mask_path}")
+            sup_mask = None
+        # The sup_mask is unreliable when excessive overlap with the illusion region
+        if sup_mask is not None and is_support_unreliable(ill_mask, sup_mask, threshold=0.5):
+            # print(f"The sup_mask is unreliable: {sup_mask_path}")
+            sup_mask = None
+
+        mask_image_dict[obj_id] = {}
+        mask_image_dict[obj_id][area_types[0]] = ill_mask
+        mask_image_dict[obj_id][area_types[1]] = sup_mask
+    
+    # Merge all masks
+    mask = np.zeros_like(valid, dtype=bool)
+    for obj_id in obj_id_list:
+        ill_mask = mask_image_dict.get(obj_id, {}).get(area_types[0])
+        sup_mask = mask_image_dict.get(obj_id, {}).get(area_types[1])
+
+        if ill_mask is not None:
+            mask[ill_mask == 255] = True
+        if sup_mask is not None:
+            mask[sup_mask == 255] = True
+    
+    if mask.sum() < 100:
+        mask = None
+    
+    return mask
+
 def readDispFooling3D(filename):
     disp = cv2.imread(filename, cv2.IMREAD_ANYDEPTH)
     valid = disp > 0.0
+    
+    tmp_path = filename.replace("depth_rect", "sam_mask")
+    mask_dir = os.path.dirname(tmp_path)
+    frame_name = os.path.splitext(os.path.basename(tmp_path))[0]
+    mask = loadMaskFooling3D(mask_dir, frame_name, valid)
+    if mask is not None:
+        valid = valid & mask
+    assert np.sum(valid) > 100, f"Invalid disp: {filename}"
+
     return disp, valid
 
 def writeDispFooling3D(filename, disp):
