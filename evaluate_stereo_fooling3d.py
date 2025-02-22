@@ -405,8 +405,12 @@ def validate_fooling3d(model, iters=32, root='', mixed_prec=False, args=None, ev
         epe = torch.sum((flow_pr - flow_gt)**2, dim=0).sqrt()
 
         epe = epe.flatten()
-        val = (valid_gt.flatten() >= -0.5) & (flow_gt.abs().flatten() < 192)
-        # val_nocc = (valid_gt.flatten() >= 0.5) & (flow_gt.abs().flatten() < 192)
+        val = valid_gt.flatten() >= 0.5
+
+         # avoid corrupted data
+        if val.sum()<10:
+            logger.info(f"Corrupted valid date: {paths}")
+            continue
 
         out_1 = (epe > 1.0)
         out_2 = (epe > 2.0)
@@ -417,7 +421,7 @@ def validate_fooling3d(model, iters=32, root='', mixed_prec=False, args=None, ev
         image_epe   = epe[val].mean().item()
 
         # avoid corrupted data
-        if val.sum()<10 or image_epe>20 or image_out_1>0.95:
+        if image_epe>20 or image_out_1>0.95:
             logger.info(f"Corrupted data: {paths}")
             continue
 

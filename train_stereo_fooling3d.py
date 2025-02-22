@@ -104,6 +104,14 @@ def train(args):
                 continue
 
             loss, metrics = sequence_loss(flow_predictions, flow, valid)
+
+            if torch.isnan(loss):
+                # Clear gradients to avoid accumulation of stale values
+                optimizer.zero_grad()
+                scaler._per_optimizer_states[optimizer]["stage"] = 0  # Reset scaler state manually
+                print(f"Skipping update at batch {global_batch_num} due to NaN loss.")
+                continue
+
             if args.local_rank==0 and int(NODE_RANK)==0:
                 logger.push(metrics)
                 logger.writer.add_scalar("live_loss", loss.item(), global_batch_num)

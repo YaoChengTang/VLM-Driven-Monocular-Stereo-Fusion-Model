@@ -84,8 +84,7 @@ class StereoDataset(data.Dataset):
         except Exception as err:
             raise Exception(err, "{}, {}, {}".format(self.image_list[index][0], 
                                                      self.image_list[index][1], 
-                                                     self.disparity_list[index]),
-                            "{}, {}".format(disp.shape, valid.shape), )
+                                                     self.disparity_list[index]), )
 
         try:
             img1 = frame_utils.read_gen(self.image_list[index][0])
@@ -444,11 +443,17 @@ class Fooling3DDataset(StereoDataset):
         origin_length = len(self.disparity_list)
         
         df = pd.read_csv(os.path.join(self.root, 'meta_data/scale_factors.csv'), header=None)
+
+        # df.columns = ['path', 'scale']
+        # video_name = "Service_Cars_1_deleted_scene_3d_remake_Servio_Comunitrio"
+        # df = df[df['path'].str.contains(video_name, case=False, na=False)]
+
         self.scale_factor = dict(zip(
             df.iloc[:, 0].apply(lambda x: x.replace('/data2', './datasets')),
             df.iloc[:, 1]
         ))
-        right_images = sorted(glob(os.path.join(self.root, 'video_frame_sequence_right/*/*/*.png')))
+        # right_images = sorted(glob(os.path.join(self.root, 'video_frame_sequence_right/*/*/*.png')))
+        right_images = df.iloc[:, 0].apply(lambda x: x.replace('/data2', './datasets')).tolist()
         disp_list =  [ im.replace('video_frame_sequence_right', 'depth_rect') for im in right_images ]
         left_images = [ im.replace('video_frame_sequence_right', 'video_frame_sequence') for im in right_images ]
 

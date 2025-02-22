@@ -239,7 +239,13 @@ def readDispFooling3D(filename):
     mask = loadMaskFooling3D(mask_dir, frame_name, valid)
     if mask is not None:
         valid = valid & mask
-    assert np.sum(valid) > 100, f"Invalid disp: {filename}"
+
+    # try:
+    #     assert np.sum(valid) > 100, f"Invalid disp: {filename}, shape: {valid.shape}, valid: {np.sum(valid)}, mask: {np.sum(mask)}, disp: {np.sum(disp>0.0)}"
+    # except Exception as err:
+    #     cv2.imwrite("./disp_mask.jpg", (disp > 0.0).astype(np.uint8) * 255)
+    #     cv2.imwrite("./sam_mask.jpg", mask.astype(np.uint8) * 255)
+    #     raise Exception(err)
 
     return disp, valid
 
