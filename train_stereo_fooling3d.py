@@ -12,6 +12,7 @@ from datetime import datetime
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.distributed as dist
 
 sys.path.insert(0,'core')
 sys.path.insert(0,'core/utils')
@@ -86,7 +87,7 @@ def train(args):
 
     while should_keep_training:
         
-        for i_batch, (_, *data_blob) in enumerate(tqdm(train_loader, disable=tqdm_disable)):
+        for i_batch, (path_info, *data_blob) in enumerate(tqdm(train_loader, disable=tqdm_disable)):
             optimizer.zero_grad()
             image1, image2, flow, valid = [x.cuda() for x in data_blob]
 
@@ -105,11 +106,15 @@ def train(args):
 
             loss, metrics = sequence_loss(flow_predictions, flow, valid)
 
-            if torch.isnan(loss):
+            is_nan = torch.isnan(loss).any().float()
+            if is_nan == 1.0:
+                logger.info(f"NaN loss detected at {path_info}")
+            dist.all_reduce(is_nan, op=dist.ReduceOp.MAX)
+            if is_nan.item() == 1.0:
                 # Clear gradients to avoid accumulation of stale values
                 optimizer.zero_grad()
-                scaler._per_optimizer_states[optimizer]["stage"] = 0  # Reset scaler state manually
-                print(f"Skipping update at batch {global_batch_num} due to NaN loss.")
+                # scaler._per_optimizer_states[optimizer]["stage"] = 0  # Reset scaler state manually
+                logger.info(f"Skipping update at batch {global_batch_num} due to NaN loss.")
                 continue
 
             if args.local_rank==0 and int(NODE_RANK)==0:
