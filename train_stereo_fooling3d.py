@@ -108,7 +108,7 @@ def train(args):
 
             is_nan = torch.isnan(loss).any().float()
             if is_nan == 1.0:
-                logger.info(f"NaN loss detected at {path_info}")
+                logger.info(f"NaN loss detected at {path_info[0]}")
             dist.all_reduce(is_nan, op=dist.ReduceOp.MAX)
             if is_nan.item() == 1.0:
                 # Clear gradients to avoid accumulation of stale values
