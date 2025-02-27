@@ -93,7 +93,8 @@ def train(args):
             image1, image2, flow, valid = [x.cuda() for x in data_blob]
 
             assert model.training
-            res = model(image1, image2, iters=args.train_iters)
+            res = model(image1, image2, iters=args.train_iters,
+                        other_params={"fusion_iters": args.train_fusion_iters})
             flow_predictions = res["disp_predictions"]
             assert model.training
 
@@ -153,14 +154,15 @@ def train(args):
 
 
 
-            # if total_steps % validation_frequency == validation_frequency - 1:
-            #     if args.local_rank==0 and int(NODE_RANK)==0:
-            #         save_path = os.path.join(CKPOINT_ROOT, 
-            #                         '%d_%s.pth' % (total_steps + 1, args.exp_name))
-            #         logger.info(f"Saving file {save_path}")
-            #         torch.save(model.state_dict(), save_path)
+            if total_steps % validation_frequency == validation_frequency - 1:
+                if args.local_rank==0 and int(NODE_RANK)==0:
+                    save_path = os.path.join(CKPOINT_ROOT, 
+                                    '%d_%s.pth' % (total_steps + 1, args.exp_name))
+                    logger.info(f"Saving file {save_path}")
+                    torch.save(model.state_dict(), save_path)
 
-            #     # results = validate_things(model.module, iters=args.valid_iters, root="./datasets/sceneflow")
+                # results = validate_things(model.module, iters=args.valid_iters, root="./datasets/sceneflow",
+                #                           other_params={"fusion_iters": args.valid_fusion_iters})
             #     # results = validate_things(model.module, iters=args.valid_iters, root=DATASET_ROOT)
             #     results = validate_fooling3d(model.module, iters=args.valid_iters, root=DATASET_ROOT)
             #     if args.local_rank==0 and int(NODE_RANK)==0:
@@ -203,12 +205,14 @@ if __name__ == '__main__':
     parser.add_argument('--num_steps', type=int, default=100000, help="length of training schedule.")
     parser.add_argument('--image_size', type=int, nargs='+', default=[320, 736], help="size of the random image crops used during training.")
     parser.add_argument('--train_iters', type=int, default=16, help="number of updates to the disparity field in each forward pass.")
+    parser.add_argument('--train_fusion_iters', type=int, default=16, help="number of adaptive fusion updates to the disparity field in each forward pass.")
     parser.add_argument('--wdecay', type=float, default=.00001, help="Weight decay in optimizer.")
     parser.add_argument('--train_refine_mono', action='store_true', help='register mono without supervision on stereo')
     parser.add_argument('--finetune', action='store_true', help='fintune model with large data')
     
     # Validation parameters
     parser.add_argument('--valid_iters', type=int, default=32, help='number of flow-field updates during validation forward pass')
+    parser.add_argument('--valid_fusion_iters', type=int, default=32, help='number of flow-field adaptive fusion updates during validation forward pass')
 
     # Architecure choices
     parser.add_argument('--corr_implementation', choices=["reg", "abs_reg", "alt", "abs_alt", "reg_cuda", "alt_cuda"], default="reg", help="correlation volume implementation")

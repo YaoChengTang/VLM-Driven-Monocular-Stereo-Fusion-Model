@@ -148,3 +148,72 @@ class DispBasicMultiUpdateBlock(nn.Module):
         mask = .25 * self.mask(net[0])
         return net, mask, delta_disp
 
+
+
+class GuidedShiftEncoder(nn.Module):
+    def __init__(self, args):
+        super(GuidedShiftEncoder, self).__init__()
+        self.args = args
+
+        cor_planes = args.corr_levels * (2*args.corr_radius + 1)
+
+        self.convc1 = nn.Conv2d(cor_planes+1, 64, 1, padding=0)
+        self.convc2 = nn.Conv2d(64, 64, 3, padding=1)
+        self.convf1 = nn.Conv2d(1, 64, 7, padding=3)
+        self.convf2 = nn.Conv2d(64, 64, 3, padding=1)
+        self.conv = nn.Conv2d(64+64, 128-1, 3, padding=1)
+
+    def forward(self, disp, guidance_corr, guidance_disp):
+        cor = F.relu(self.convc1( torch.cat([guidance_corr, guidance_disp], dim=1) ))
+        cor = F.relu(self.convc2(cor))
+
+        dis = F.relu(self.convf1(disp))
+        dis = F.relu(self.convf2(dis))
+
+        cor_dis = torch.cat([cor, dis], dim=1)
+        out = F.relu(self.conv(cor_dis))
+        return torch.cat([out, disp], dim=1)
+
+
+class GuidedMultiUpdateBlock(nn.Module):
+    def __init__(self, args, hidden_dims=[]):
+        super(GuidedMultiUpdateBlock, self).__init__()
+        self.args = args
+        self.encoder = GuidedShiftEncoder(args)
+        encoder_output_dim = 128
+
+        self.gru08 = ConvGRU(hidden_dims[2], encoder_output_dim + hidden_dims[1] * (args.n_gru_layers > 1))
+        self.gru16 = ConvGRU(hidden_dims[1], hidden_dims[0] * (args.n_gru_layers == 3) + hidden_dims[2])
+        self.gru32 = ConvGRU(hidden_dims[0], hidden_dims[1])
+        self.disp_head = DispHead(hidden_dims[2], hidden_dim=256, output_dim=1)
+        factor = 2**self.args.n_downsample
+
+        self.mask = nn.Sequential(
+            nn.Conv2d(hidden_dims[2], 256, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, (factor**2)*9, 1, padding=0))
+
+    def forward(self, net, inp, guidance_corr=None, guidance_disp=None, disp=None, iter08=True, iter16=True, iter32=True, update=True):
+
+        if iter32:
+            net[2] = self.gru32(net[2], *(inp[2]), pool2x(net[1]))
+        if iter16:
+            if self.args.n_gru_layers > 2:
+                net[1] = self.gru16(net[1], *(inp[1]), pool2x(net[0]), interp(net[2], net[1]))
+            else:
+                net[1] = self.gru16(net[1], *(inp[1]), pool2x(net[0]))
+        if iter08:
+            motion_features = self.encoder(disp, guidance_corr, guidance_disp)
+            if self.args.n_gru_layers > 1:
+                net[0] = self.gru08(net[0], *(inp[0]), motion_features, interp(net[1], net[0]))
+            else:
+                net[0] = self.gru08(net[0], *(inp[0]), motion_features)
+
+        if not update:
+            return net
+
+        delta_disp = self.disp_head(net[0])
+
+        # scale mask to balence gradients
+        mask = .25 * self.mask(net[0])
+        return net, mask, delta_disp

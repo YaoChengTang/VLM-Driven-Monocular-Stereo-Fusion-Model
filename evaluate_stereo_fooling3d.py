@@ -24,6 +24,7 @@ from core.raft_stereo_depthbeta_nolbp import RAFTStereoDepthBetaNoLBP
 from core.raft_stereo_depthmatch import RAFTStereoDepthMatch
 from core.raft_stereo_depthbeta_refine import RAFTStereoDepthBetaRefine
 from core.raft_stereo_depth_postfusion import RAFTStereoDepthPostFusion
+from core.raft_stereo_depth_adaptivepostfusion import RAFTStereoDepthAdaptivePostFusion
 
 import stereo_datasets as datasets
 from core.utils.utils import InputPadder, LoggerCommon
@@ -307,7 +308,7 @@ def validate_kitti2012(model, iters=32, root="", mixed_prec=False):
     return {'kitti-epe': round(epe,4), 'kitti-d1': round(d1,4)}
 
 @torch.no_grad()
-def validate_things(model, iters=32, root='', mixed_prec=False, args=None, eval=False, info=""):
+def validate_things(model, iters=32, root='', mixed_prec=False, args=None, eval=False, info="", other_params=None):
     """ Peform validation using the FlyingThings3D (TEST) split """
     eval = args.eval if args is not None else eval
     model.eval()
@@ -325,7 +326,7 @@ def validate_things(model, iters=32, root='', mixed_prec=False, args=None, eval=
         image1, image2 = padder.pad(image1, image2)
 
         with autocast(enabled=mixed_prec):
-            _, flow_pr = model(image1, image2, iters=iters, test_mode=True)
+            _, flow_pr = model(image1, image2, iters=iters, test_mode=True, other_params=other_params)
         flow_pr = padder.unpad(flow_pr).cpu().squeeze(0)
         assert flow_pr.shape == flow_gt.shape, (flow_pr.shape, flow_gt.shape)
         epe = torch.sum((flow_pr - flow_gt)**2, dim=0).sqrt()
@@ -380,7 +381,7 @@ def validate_things(model, iters=32, root='', mixed_prec=False, args=None, eval=
 
 
 @torch.no_grad()
-def validate_fooling3d(model, iters=32, root='', mixed_prec=False, args=None, eval=False, info=""):
+def validate_fooling3d(model, iters=32, root='', mixed_prec=False, args=None, eval=False, info="", other_params=None):
     """ Peform validation using the FlyingThings3D (TEST) split """
     eval = args.eval if args is not None else eval
     model.eval()
@@ -399,7 +400,7 @@ def validate_fooling3d(model, iters=32, root='', mixed_prec=False, args=None, ev
         image1, image2 = padder.pad(image1, image2)
 
         with autocast(enabled=mixed_prec):
-            _, flow_pr = model(image1, image2, iters=iters, test_mode=True)
+            _, flow_pr = model(image1, image2, iters=iters, test_mode=True, other_params=other_params)
         flow_pr = padder.unpad(flow_pr).cpu().squeeze(0)
         assert flow_pr.shape == flow_gt.shape, (flow_pr.shape, flow_gt.shape)
         epe = torch.sum((flow_pr - flow_gt)**2, dim=0).sqrt()
@@ -459,7 +460,7 @@ def validate_fooling3d(model, iters=32, root='', mixed_prec=False, args=None, ev
 
 
 @torch.no_grad()
-def validate_middlebury(model, iters=32, split='F', root="", mixed_prec=False):
+def validate_middlebury(model, iters=32, split='F', root="", mixed_prec=False, other_params=None):
     """ Peform validation using the Middlebury-V3 dataset """
     model.eval()
     aug_params = {}
@@ -477,7 +478,7 @@ def validate_middlebury(model, iters=32, split='F', root="", mixed_prec=False):
         image1, image2 = padder.pad(image1, image2)
 
         with autocast(enabled=mixed_prec):
-            _, flow_pr = model(image1, image2, iters=iters, test_mode=True)
+            _, flow_pr = model(image1, image2, iters=iters, test_mode=True, other_params=other_params)
         flow_pr = padder.unpad(flow_pr).cpu().squeeze(0)
 
         assert flow_pr.shape == flow_gt.shape, (flow_pr.shape, flow_gt.shape)
@@ -541,6 +542,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', help="dataset for evaluation", required=True, choices=["eth3d", "kitti", 'kitti2012', "things", "booster"] + [f"middlebury_{s}" for s in 'FHQ'])
     parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
     parser.add_argument('--valid_iters', type=int, default=32, help='number of flow-field updates during forward pass')
+    parser.add_argument('--valid_fusion_iters', type=int, default=32, help='number of flow-field adaptive fusion updates during validation forward pass')
     parser.add_argument('--eval', action='store_true', help='evaluation mode')
     parser.add_argument('--silence', action='store_true', help='no output of training/eval process')
 
@@ -595,6 +597,8 @@ if __name__ == '__main__':
         model = RAFTStereoDepthBetaRefine(args)
     elif args.model_name.lower() == "RAFTStereoDepthPostFusion".lower():
         model = RAFTStereoDepthPostFusion(args)
+    elif args.model_name.lower() == "RAFTStereoDepthAdaptivePostFusion".lower():
+        model = RAFTStereoDepthAdaptivePostFusion(args)
     else :
         raise Exception("No such model: {}".format(args.model_name))
     model = torch.nn.DataParallel(model, device_ids=[0])
@@ -645,13 +649,15 @@ if __name__ == '__main__':
         if args.root is None:
             args.root = "./datasets/Middlebury"
         res = validate_middlebury(model, iters=args.valid_iters, root=args.root, split=args.dataset[-1], 
-                                  mixed_prec=use_mixed_precision)
+                                  mixed_prec=use_mixed_precision,
+                                  other_params={"fusion_iters": args.valid_fusion_iters},)
 
     elif args.dataset == 'things':
         if args.root is None:
             args.root = "./datasets/sceneflow"
         res = validate_things(model, iters=args.valid_iters, root=args.root, 
-                              mixed_prec=use_mixed_precision)
+                              mixed_prec=use_mixed_precision,
+                              other_params={"fusion_iters": args.valid_fusion_iters},)
     
     elif args.dataset == 'booster':
         if args.root is None:
