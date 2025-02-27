@@ -317,7 +317,8 @@ class SparseFlowAugmentor:
 
         return x0, y0
 
-    def spatial_transform(self, img1, img2, flow, valid):
+    # def spatial_transform(self, img1, img2, flow, valid):
+    def spatial_transform(self, img1, img2, flow, valid, path=None):
         # randomly sample scale
 
         ht, wd = img1.shape[:2]
@@ -329,11 +330,23 @@ class SparseFlowAugmentor:
         scale_x = np.clip(scale, min_scale, None)
         scale_y = np.clip(scale, min_scale, None)
 
+        if path is not None and "3D_PAINTING_DESIGNS_3D_WALL_PAINTING_SIMPLE_3D_WALL_DECORATION_PAINTING/frame_0310" in path:
+            # print("-"*10, "SparseFlowAugmentor: ", path, img1.shape, valid.shape, x0, y0)
+            cv2.imwrite("./AUG1_image1.jpg", img1.astype(np.uint8))
+            cv2.imwrite("./AUG1_valid.jpg", (valid >= 0.5).astype(np.uint8)*255)
+            cv2.imwrite("./AUG1_flow.jpg", (np.abs(flow[...,0]) < 700).astype(np.uint8) * 255)
+
         if np.random.rand() < self.spatial_aug_prob:
             # rescale the images
             img1 = cv2.resize(img1, None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
             img2 = cv2.resize(img2, None, fx=scale_x, fy=scale_y, interpolation=cv2.INTER_LINEAR)
             flow, valid = self.resize_sparse_flow_map(flow, valid, fx=scale_x, fy=scale_y)
+
+        if path is not None and "3D_PAINTING_DESIGNS_3D_WALL_PAINTING_SIMPLE_3D_WALL_DECORATION_PAINTING/frame_0310" in path:
+            # print("-"*10, "SparseFlowAugmentor: ", path, img1.shape, valid.shape, x0, y0)
+            cv2.imwrite("./AUG2_image1.jpg", img1.astype(np.uint8))
+            cv2.imwrite("./AUG2_valid.jpg", (valid >= 0.5).astype(np.uint8)*255)
+            cv2.imwrite("./AUG2_flow.jpg", (np.abs(flow[...,0]) < 700).astype(np.uint8) * 255)
 
         if self.do_flip:
             if np.random.rand() < self.h_flip_prob and self.do_flip == 'hf': # h-flip
@@ -374,10 +387,20 @@ class SparseFlowAugmentor:
         return img1, img2, flow, valid
 
 
-    def __call__(self, img1, img2, flow, valid):
+    # def __call__(self, img1, img2, flow, valid):
+    def __call__(self, img1, img2, flow, valid, path=None):
+        if path is not None and "3D_PAINTING_DESIGNS_3D_WALL_PAINTING_SIMPLE_3D_WALL_DECORATION_PAINTING/frame_0310" in path:
+            # from PIL import Image
+            # Image.fromarray(img1.astype(np.uint8)).save("AUG_image1.png")
+            # Image.fromarray(((valid >= 0.5)*255).astype(np.uint8)).save("AUG_valid.png")
+            # Image.fromarray(((np.abs(flow[:1]) < 700)*255).astype(np.uint8)).save("AUG_flow.png")
+            # import cv2
+            cv2.imwrite("./CALL_img1.jpg", img1.astype(np.uint8))
+            cv2.imwrite("./CALL_mask.jpg", (valid>=0.5).astype(np.uint8) * 255)
+            cv2.imwrite("./CALL_flow.jpg", (np.abs(flow[..., 0]) < 700).astype(np.uint8) * 255)
         img1, img2 = self.color_transform(img1, img2)
         img1, img2 = self.eraser_transform(img1, img2)
-        img1, img2, flow, valid = self.spatial_transform(img1, img2, flow, valid)
+        img1, img2, flow, valid = self.spatial_transform(img1, img2, flow, valid, path)
 
         img1 = np.ascontiguousarray(img1)
         img2 = np.ascontiguousarray(img2)

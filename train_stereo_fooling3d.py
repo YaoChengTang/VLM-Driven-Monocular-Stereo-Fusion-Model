@@ -13,6 +13,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.distributed as dist
+import torchvision.utils as vutils
 
 sys.path.insert(0,'core')
 sys.path.insert(0,'core/utils')
@@ -108,7 +109,19 @@ def train(args):
 
             is_nan = torch.isnan(loss).any().float()
             if is_nan == 1.0:
-                logger.info(f"NaN loss detected at {path_info[0]}")
+                logger.info(f"NaN loss detected at {path_info[0]}" + \
+                            f", {((valid >= 0.5) & (torch.sum(flow**2, dim=1).sqrt() < 700)).unsqueeze(1).sum()}" + \
+                            f", {(valid >= 0.5).sum()}"  + \
+                            f", {(torch.sum(flow**2, dim=1).sqrt() < 700).sum()}" + \
+                            f", {valid.shape}, {flow.shape}" + \
+                            f", {torch.sum(flow**2, dim=1).sqrt().min()}" + \
+                            f", {torch.sum(flow**2, dim=1).sqrt().max()}")
+                if args.local_rank==0 and int(NODE_RANK)==0:
+                    # print("-"*10, (valid >= 0.5).unsqueeze(1).float().dtype)
+                    vutils.save_image(image1[0], "image1.png")
+                    vutils.save_image((valid >= 0.5).unsqueeze(1).float()[0], "output_valid.png")
+                    vutils.save_image((torch.sum(flow**2, dim=1).sqrt().unsqueeze(1) < 700).float()[0], "output_flow.png")
+                # sys.exit(0)
             dist.all_reduce(is_nan, op=dist.ReduceOp.MAX)
             if is_nan.item() == 1.0:
                 # Clear gradients to avoid accumulation of stale values
@@ -140,21 +153,21 @@ def train(args):
 
 
 
-            if total_steps % validation_frequency == validation_frequency - 1:
-                if args.local_rank==0 and int(NODE_RANK)==0:
-                    save_path = os.path.join(CKPOINT_ROOT, 
-                                    '%d_%s.pth' % (total_steps + 1, args.exp_name))
-                    logger.info(f"Saving file {save_path}")
-                    torch.save(model.state_dict(), save_path)
+            # if total_steps % validation_frequency == validation_frequency - 1:
+            #     if args.local_rank==0 and int(NODE_RANK)==0:
+            #         save_path = os.path.join(CKPOINT_ROOT, 
+            #                         '%d_%s.pth' % (total_steps + 1, args.exp_name))
+            #         logger.info(f"Saving file {save_path}")
+            #         torch.save(model.state_dict(), save_path)
 
-                # results = validate_things(model.module, iters=args.valid_iters, root="./datasets/sceneflow")
-                # results = validate_things(model.module, iters=args.valid_iters, root=DATASET_ROOT)
-                results = validate_fooling3d(model.module, iters=args.valid_iters, root=DATASET_ROOT)
-                if args.local_rank==0 and int(NODE_RANK)==0:
-                    logger.write_dict(results)
+            #     # results = validate_things(model.module, iters=args.valid_iters, root="./datasets/sceneflow")
+            #     # results = validate_things(model.module, iters=args.valid_iters, root=DATASET_ROOT)
+            #     results = validate_fooling3d(model.module, iters=args.valid_iters, root=DATASET_ROOT)
+            #     if args.local_rank==0 and int(NODE_RANK)==0:
+            #         logger.write_dict(results)
 
-                model.train()
-                model.module.freeze_bn()
+            #     model.train()
+            #     model.module.freeze_bn()
 
             total_steps += 1
             if total_steps > args.num_steps:
