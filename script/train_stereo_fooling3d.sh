@@ -23,7 +23,7 @@ export NCCL_P2P_DISABLE=1
 # export MASTER_ADDR=127.0.0.1
 # export MASTER_PORT=29501
 # export CUDA_VISIBLE_DEVICES=0,1,2,3
-export CUDA_VISIBLE_DEVICES=3,4
+export CUDA_VISIBLE_DEVICES=1,2
 
 # "/horizon-bucket/saturn_v_dev/01_users/chengtang.yao/Sceneflow"
 # "/horizon-bucket/saturn_v_dev/01_users/chengtang.yao/Middlebury"
@@ -52,4 +52,8 @@ nproc_per_node=$(echo $CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)  # Count the 
 
 # torchrun --nnode 1 --nproc_per_node $nproc_per_node --master_port 29501 train_stereo_fooling3d.py --batch_size 32 --train_iters 22 --valid_iters 32 --spatial_scale -0.2 0.4 --saturation_range 0 1.4 --n_downsample 2 --num_steps 50000 --mixed_precision --model_name "RAFTStereoDepthBetaRefine" --depthany_model_dir "/data5/yao/pretrained" --lbp_neighbor_offsets "(-5,-5), (5,5), (5,-5), (-5,5), (-3,0), (3,0), (0,-3), (0,3)" --modulation_ratio 1.0 --conf_from_fea --restore_ckpt "/data5/yao/runs/ckpoint/Fooling3D_BetaConf_20250225_104116/Fooling3D_BetaConf.pth" --lr 0.0005 --train_refine_mono --exp_name "Fooling3D_BetaConf2"
 
-torchrun --nnode 1 --nproc_per_node $nproc_per_node --master_port 29502 train_stereo_fooling3d.py --batch_size 8 --train_iters 5 --valid_iters 5 --train_fusion_iters 17 --valid_fusion_iters 27 --spatial_scale -0.2 0.4 --saturation_range 0 1.4 --n_downsample 2 --num_steps 50000 --mixed_precision --model_name "RAFTStereoDepthAdaptivePostFusion" --depthany_model_dir "/data5/yao/pretrained" --restore_ckpt "/data5/yao/pretrained" --restore_ckpt "/data5/yao/runs/ckpoint/RaftStereoDepthAny_20240908_125231/RaftStereoDepthAny.pth" --lr 0.0005 --exp_name "Fooling3D_ME_AdaptivePostFusion"
+# torchrun --nnode 1 --nproc_per_node $nproc_per_node --master_port 29502 train_stereo_fooling3d.py --batch_size 8 --train_iters 5 --valid_iters 5 --train_fusion_iters 17 --valid_fusion_iters 27 --spatial_scale -0.2 0.4 --saturation_range 0 1.4 --n_downsample 2 --num_steps 50000 --mixed_precision --model_name "RAFTStereoDepthAdaptivePostFusion" --depthany_model_dir "/data5/yao/pretrained" --restore_ckpt "/data5/yao/pretrained" --restore_ckpt "/data5/yao/runs/ckpoint/RaftStereoDepthAny_20240908_125231/RaftStereoDepthAny.pth" --lr 0.0005 --exp_name "Fooling3D_ME_AdaptivePostFusion"
+
+# torchrun --nnode 1 --nproc_per_node $nproc_per_node --master_port 29502 train_stereo_fooling3d.py --batch_size 8 --train_iters 22 --valid_iters 32 --train_fusion_iters 22 --valid_fusion_iters 27 --spatial_scale -0.2 0.4 --saturation_range 0 1.4 --n_downsample 2 --num_steps 100000 --mixed_precision --model_name "RAFTStereoDepthAdaptivePostFusion" --depthany_model_dir "/data5/yao/pretrained" --restore_ckpt "/data5/yao/pretrained" --restore_ckpt "/data5/yao/runs/ckpoint/Fooling3D_ME_AdaptivePostFusion_20250228_042118/Fooling3D_ME_AdaptivePostFusion.pth" --lr 0.0005 --exp_name "Fooling3D_ME_AdaptivePostFusion2"
+
+torchrun --nnode 1 --nproc_per_node $nproc_per_node --master_port 29503 train_stereo_fooling3d.py --batch_size 8 --train_iters 22 --valid_iters 32 --train_fusion_iters 22 --valid_fusion_iters 32 --spatial_scale -0.2 0.4 --saturation_range 0 1.4 --n_downsample 2 --num_steps 100000 --mixed_precision --model_name "RAFTStereoDepthAdaptiveSingle" --depthany_model_dir "/data5/yao/pretrained" --restore_ckpt "/data5/yao/pretrained" --restore_ckpt "/data5/yao/runs/ckpoint/RaftStereoDepthAny_20240908_125231/RaftStereoDepthAny.pth" --lr 0.0005 --exp_name "Fooling3D_ME_AdaptiveSingle"

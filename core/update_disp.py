@@ -151,11 +151,12 @@ class DispBasicMultiUpdateBlock(nn.Module):
 
 
 class GuidedShiftEncoder(nn.Module):
-    def __init__(self, args):
+    def __init__(self, args, single=False):
         super(GuidedShiftEncoder, self).__init__()
         self.args = args
 
         cor_planes = args.corr_levels * (2*args.corr_radius + 1)
+        cor_planes = cor_planes if not single else cor_planes*2
 
         self.convc1 = nn.Conv2d(cor_planes+1, 64, 1, padding=0)
         self.convc2 = nn.Conv2d(64, 64, 3, padding=1)
@@ -176,10 +177,10 @@ class GuidedShiftEncoder(nn.Module):
 
 
 class GuidedMultiUpdateBlock(nn.Module):
-    def __init__(self, args, hidden_dims=[]):
+    def __init__(self, args, hidden_dims=[], single=False):
         super(GuidedMultiUpdateBlock, self).__init__()
         self.args = args
-        self.encoder = GuidedShiftEncoder(args)
+        self.encoder = GuidedShiftEncoder(args, single=single)
         encoder_output_dim = 128
 
         self.gru08 = ConvGRU(hidden_dims[2], encoder_output_dim + hidden_dims[1] * (args.n_gru_layers > 1))
