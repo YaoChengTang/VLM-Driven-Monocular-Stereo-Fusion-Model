@@ -10,6 +10,7 @@ import re
 import copy
 import math
 import random
+import pickle
 from pathlib import Path
 from glob import glob
 import os.path as osp
@@ -52,7 +53,7 @@ class StereoDataset(data.Dataset):
         self.flow_list = []
         self.disparity_list = []
         self.image_list = []
-        self.extra_info = []
+        self.extra_info = {}
 
     def __getitem__(self, index):
 
@@ -150,7 +151,10 @@ class StereoDataset(data.Dataset):
         copy_of_self.flow_list = v * copy_of_self.flow_list
         copy_of_self.image_list = v * copy_of_self.image_list
         copy_of_self.disparity_list = v * copy_of_self.disparity_list
-        copy_of_self.extra_info = v * copy_of_self.extra_info
+        if isinstance(self.extra_info, list):
+            copy_of_self.extra_info = v * copy_of_self.extra_info
+        elif isinstance(self.extra_info, dict):
+            copy_of_self.extra_info = {key: v * val for key, val in copy_of_self.extra_info.items():}
         return copy_of_self
         
     def __len__(self):
@@ -434,6 +438,7 @@ class Fooling3DDataset(StereoDataset):
         super(Fooling3DDataset, self).__init__(aug_params, sparse=True, reader=frame_utils.readDispFooling3D)
         assert os.path.exists(root)
         self.root = root
+        self.image_set = image_set
         self.video_frames_info = {}
         
         self._add_mono()
@@ -442,25 +447,48 @@ class Fooling3DDataset(StereoDataset):
     def _add_mono(self):
         origin_length = len(self.disparity_list)
         
-        df = pd.read_csv(os.path.join(self.root, 'meta_data/scale_factors.csv'), header=None)
+        if self.image_set=="training":
+            df = pd.read_csv(os.path.join(self.root, 'meta_data/scale_factors.csv'), header=None)
 
-        # df.columns = ['path', 'scale']
-        # video_name = "Service_Cars_1_deleted_scene_3d_remake_Servio_Comunitrio"
-        # df = df[df['path'].str.contains(video_name, case=False, na=False)]
+            # df.columns = ['path', 'scale']
+            # video_name = "Service_Cars_1_deleted_scene_3d_remake_Servio_Comunitrio"
+            # df = df[df['path'].str.contains(video_name, case=False, na=False)]
 
-        self.scale_factor = dict(zip(
-            df.iloc[:, 0].apply(lambda x: x.replace('/data2', './datasets')),
-            df.iloc[:, 1]
-        ))
-        # right_images = sorted(glob(os.path.join(self.root, 'video_frame_sequence_right/*/*/*.png')))
-        right_images = df.iloc[:, 0].apply(lambda x: x.replace('/data2', './datasets')).tolist()
-        disp_list =  [ im.replace('video_frame_sequence_right', 'depth_rect') for im in right_images ]
-        left_images = [ im.replace('video_frame_sequence_right', 'video_frame_sequence') for im in right_images ]
+            self.scale_factor = dict(zip(
+                df.iloc[:, 0].apply(lambda x: x.replace('/data2', './datasets')),
+                df.iloc[:, 1]
+            ))
+            # right_images = sorted(glob(os.path.join(self.root, 'video_frame_sequence_right/*/*/*.png')))
+            right_images = df.iloc[:, 0].apply(lambda x: x.replace('/data2', './datasets')).tolist()
+            disp_list =  [ im.replace('video_frame_sequence_right', 'depth_rect') for im in right_images ]
+            left_images = [ im.replace('video_frame_sequence_right', 'video_frame_sequence') for im in right_images ]
 
-        assert len(left_images) == len(right_images) == len(disp_list) > 0, [len(left_images), len(right_images), len(disp_list)]
-        for img1, img2, disp in zip(left_images, right_images, disp_list):
-            self.image_list += [ [img1, img2] ]
-            self.disparity_list += [ disp ]
+            assert len(left_images) == len(right_images) == len(disp_list) > 0, [len(left_images), len(right_images), len(disp_list)]
+            for img1, img2, disp in zip(left_images, right_images, disp_list):
+                self.image_list += [ [img1, img2] ]
+                self.disparity_list += [ disp ]
+        
+        elif self.image_set=="testing":
+            with open(os.path.join(self.root, 'meta_data/testing_enter.pkl'), 'rb') as f:
+                data = pickle.load(f)
+            
+            self.extra_info["mask"] = []
+            for key, frame_dict in data.items():
+                left_image_path  = os.path.join(self.root, "real_data/testing", frame_dict["left"])
+                right_image_path = os.path.join(self.root, "real_data/testing", frame_dict["right"])
+                disp_image_path  = os.path.join(self.root, "real_data/testing", frame_dict["disp"])
+                mask_image_path  = os.path.join(self.root, "real_data/testing", frame_dict["mask"])
+
+                self.image_list += [ [left_image_path, right_image_path] ]
+                self.disparity_list += [ disp_image_path ]
+                self.extra_info["mask"] += [ mask_image_path ]
+
+            assert len(self.image_list) == len(self.disparity_list) == len(self.extra_info["mask"]) > 0, \
+                   [len(self.image_list), len(self.disparity_list), len(self.extra_info["mask"])]
+
+        else:
+            raise Exception(f"{self.image_set} is not in ['training', 'testing']")
+        
         logging.info(f"Added {len(self.disparity_list) - origin_length} from Fooling3D Mono")
     
     def _build_video_frames_info(self):
