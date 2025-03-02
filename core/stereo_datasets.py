@@ -77,7 +77,10 @@ class StereoDataset(data.Dataset):
 
         try:
             index = index % len(self.image_list)
-            disp = self.disparity_reader(self.disparity_list[index])
+            if "mask" not in self.extra_info:
+                disp = self.disparity_reader(self.disparity_list[index])
+            else:
+                disp = self.disparity_reader(self.disparity_list[index], self.extra_info["mask"][index])
             if isinstance(disp, tuple):
                 disp, valid = disp
             else:

@@ -229,14 +229,21 @@ def loadMaskFooling3D(mask_dir, frame_name, valid):
     
     return mask
 
-def readDispFooling3D(filename):
-    disp = cv2.imread(filename, cv2.IMREAD_ANYDEPTH)
+def readDispFooling3D(filename, mask_path=None):
+    if os.splitext(filename)[-1].lower() in [".jpg, .png, .jpeg"]:
+        disp = cv2.imread(filename, cv2.IMREAD_ANYDEPTH)
+    elif os.splitext(filename)[-1].lower() == ".pfm":
+        disp = readPFM(filename).astype(np.float32)
     valid = disp > 0.0
     
-    tmp_path = filename.replace("depth_rect", "sam_mask")
-    mask_dir = os.path.dirname(tmp_path)
-    frame_name = os.path.splitext(os.path.basename(tmp_path))[0]
-    mask = loadMaskFooling3D(mask_dir, frame_name, valid)
+    if mask_path is not None:
+        mask = load_mask_image(mask_path)
+    else:
+        tmp_path = filename.replace("depth_rect", "sam_mask")
+        mask_dir = os.path.dirname(tmp_path)
+        frame_name = os.path.splitext(os.path.basename(tmp_path))[0]
+        mask = loadMaskFooling3D(mask_dir, frame_name, valid)
+    
     if mask is not None:
         valid = valid & mask
 
