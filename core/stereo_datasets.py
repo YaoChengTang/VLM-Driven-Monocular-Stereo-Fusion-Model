@@ -157,7 +157,7 @@ class StereoDataset(data.Dataset):
         if isinstance(self.extra_info, list):
             copy_of_self.extra_info = v * copy_of_self.extra_info
         elif isinstance(self.extra_info, dict):
-            copy_of_self.extra_info = {key: v * val for key, val in copy_of_self.extra_info.items():}
+            copy_of_self.extra_info = {key: v * val for key, val in copy_of_self.extra_info.items()}
         return copy_of_self
         
     def __len__(self):
