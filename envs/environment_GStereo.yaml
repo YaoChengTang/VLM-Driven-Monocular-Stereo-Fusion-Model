@@ -250,7 +250,6 @@ dependencies:
       - anyio==4.4.0
       - asttokens==2.4.1
       - backcall==0.2.0
-      - corr-sampler==0.0.0
       - decorator==5.1.1
       - diffusers==0.30.0
       - einops==0.8.0
