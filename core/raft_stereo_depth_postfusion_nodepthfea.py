@@ -25,13 +25,17 @@ except:
         def __exit__(self, *args):
             pass
 
-class RAFTStereoDepthPostFusionNoCTX(nn.Module):
+class RAFTStereoDepthPostFusionNoDepthMonoFea(nn.Module):
     def __init__(self, args):
-        super(RAFTStereoDepthPostFusionNoCTX, self).__init__()
+        super(RAFTStereoDepthPostFusionNoDepthMonoFea, self).__init__()
         self.args = args
         
         context_dims = args.hidden_dims
 
+        self.depth_model = DepthAnyExtractor(model_dir=args.depthany_model_dir,
+                                            output_dim=[args.hidden_dims, context_dims], 
+                                            norm_fn=args.context_norm, 
+                                            downsample=args.n_downsample)
         self.cnet = MultiBasicEncoder(output_dim=[args.hidden_dims, context_dims], norm_fn=args.context_norm, downsample=args.n_downsample)
         self.update_block = DispBasicMultiUpdateBlock(self.args, hidden_dims=args.hidden_dims)
 
@@ -94,7 +98,8 @@ class RAFTStereoDepthPostFusionNoCTX(nn.Module):
                 fmap1, fmap2 = self.conv2(x).split(dim=0, split_size=x.shape[0]//2)
             else:
                 # cnet_list: [[(128,248,360), (128,248,360)], [(128,124,180),(128,124,180)], [(128,62,90),(128,62,90)]]
-                cnet_list, depth = self.cnet(image1, num_layers=self.args.n_gru_layers)
+                _, depth = self.depth_model(image1, num_layers=self.args.n_gru_layers)
+                cnet_list = self.cnet(image1, num_layers=self.args.n_gru_layers)
                 # fmap1: (128,248,360), fmap2: (128,248,360)
                 fmap1, fmap2 = self.fnet([image1, image2])
             
