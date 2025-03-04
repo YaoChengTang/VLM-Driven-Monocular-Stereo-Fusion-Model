@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from core.update_disp import DispBasicMultiUpdateBlock
-from core.extractor import BasicEncoder, ResidualBlock
+from core.extractor import BasicEncoder, ResidualBlock, MultiBasicEncoder
 from core.extractor_depthany import DepthAnyExtractor
 from core.corr import CorrBlock1D, PytorchAlternateCorrBlock1D, CorrBlockFast1D, AlternateCorrBlock
 from core.utils.utils import hor_coords_grid, rescale_modulation

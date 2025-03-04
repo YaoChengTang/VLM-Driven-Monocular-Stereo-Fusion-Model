@@ -22,3 +22,11 @@ trimesh
 tensorboard
 pyglet<2
 huggingface-hub[torch]>=0.22
+
+opencv-python-headless>=4.8.0
+sentencepiece==0.2.0
+controlnet_aux
+mediapipe
+sam2
+optimum
+optimum-quanto
