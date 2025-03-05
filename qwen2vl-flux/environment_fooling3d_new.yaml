@@ -194,7 +194,7 @@ dependencies:
   - python>=3.10.0
   - python-dateutil>=2.9.0post0
   - python-tzdata>=2023.3
-  - pytorch>=2.4.1
+  - pytorch==2.5.1
   - pytorch-cuda>=12.4
   - pytorch-mutex>=1.0
   - pytz>=2024.1
@@ -222,9 +222,9 @@ dependencies:
   - tk>=8.6.14
   - tomli>=2.0.1
   - toolz>=0.12.0
-  - torchaudio>=2.4.1
+  - torchaudio==2.5.1
   - torchtriton>=3.0.0
-  - torchvision>=0.19.1
+  - torchvision==0.20.1
   - tornado>=6.4.1
   - tqdm>=4.66.4
   - typing-extensions>=4.11.0
@@ -307,7 +307,7 @@ dependencies:
       - wcwidth>=0.2.13
       - websockets>=12.0
       - Pillow>=10.0.0
-      - opencv-python-headless>=4.8.0
+      # - opencv-python-headless>=4.8.0
       - sentencepiece==0.2.0
       - controlnet_aux
       - mediapipe

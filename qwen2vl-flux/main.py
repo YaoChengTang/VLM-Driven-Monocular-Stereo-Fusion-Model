@@ -125,11 +125,12 @@ def main():
         raise ValueError(f"{args.mode} mode requires a mask image")
     
     # Generate images
+    args.image_count = 3
     print(f"Generating {args.image_count} images in {args.mode} mode...")
     generated_images = model.generate(
-        input_image_a=input_image,
+        input_image_a=[input_image,input_image,input_image],
         input_image_b=reference_image,
-        prompt=args.prompt,
+        prompt=[args.prompt]*3,
         mask_image=mask_image,
         mode=args.mode,
         imageCount=args.image_count,
