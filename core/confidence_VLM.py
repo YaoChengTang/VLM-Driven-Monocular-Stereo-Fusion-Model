@@ -56,7 +56,7 @@ class Qwen2Connector(nn.Module):
         return self.linear(x)
 
 
-class ConfidenceVLMFlux:
+class ConfidenceVLMFlux(nn.Module):
     def __init__(self, args, is_turbo=False, device="cuda"):
         """
         Initialize FluxModel with specified features
@@ -64,6 +64,7 @@ class ConfidenceVLMFlux:
             is_turbo: Enable turbo mode for faster inference
             device: Device to run the model on
         """
+        super().__init__()
         self.device = torch.device(device)
         self.dtype = torch.bfloat16
 
@@ -71,6 +72,8 @@ class ConfidenceVLMFlux:
 
         # Initialize base models (always required)
         self._init_base_models()
+        
+        self._enable_lora(args.lora_rank, args.lora_alpha, args.lora_dropout)
 
         if is_turbo:
             self._enable_turbo()
@@ -106,7 +109,7 @@ class ConfidenceVLMFlux:
         t5_embedder_path = os.path.join(MODEL_PATHS['qwen2vl'], "t5_embedder.pt")
         t5_embedder_state_dict = torch.load(t5_embedder_path, map_location=self.device, weights_only=True)
         self.t5_context_embedder.load_state_dict(t5_embedder_state_dict)
-        self.t5_context_embedder.to(self.dtype).to(self.device)
+        self.t5_context_embedder.requires_grad_(False).to(self.dtype).to(self.device)
 
         # Basic components
         self.noise_scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(MODEL_PATHS['flux'], subfolder="scheduler", shift=1)
@@ -125,10 +128,61 @@ class ConfidenceVLMFlux:
                 text_encoder=self.text_encoder,
                 tokenizer=self.tokenizer,
             )
+        self.pipeline.set_progress_bar_config(disable=True)
         print("-"*10, "Completed initialization", "-"*10)
 
-    def _enable_lora(self):
-        pass
+    def _enable_lora(self, lora_rank, lora_alpha, lora_dropout):
+        """Enable LoRA for the transformer model"""
+
+        self._setup_trainable_components()
+
+        ##### LoRA Configuration for qwen2vl #####
+        targets_qwen2vl = [
+            f"model.layers.27.self_attn.q_proj",
+            f"model.layers.27.self_attn.v_proj"
+        ]
+
+        lora_config_qwen2vl = LoraConfig(
+            r=lora_rank,
+            lora_alpha=lora_alpha,
+            target_modules=targets_qwen2vl,
+            lora_dropout=lora_dropout,
+            bias="none",
+        )
+        self.qwen2vl = get_peft_model(self.qwen2vl, lora_config_qwen2vl)
+
+        ##### LoRA Configuration for transformer of Flux #####
+        pattern_trans = r"transformer_blocks.\d+.attn.add_[q|v]_proj"
+        targets_trans = []
+        # cnt = 0
+        for name, _ in self.transformer.named_parameters():
+            # cnt += 1
+            # if cnt<100 or 500 < cnt < 1000:
+            #     print(f"Parameter: {name}", re.match(pattern_trans, name))
+            
+            group = re.search(pattern_trans, name)
+            if group:
+                targets_trans.append(group[0])
+        # print("-"*60)
+        # print(targets_trans, len(targets_trans))
+
+        lora_config_trans = LoraConfig(
+            r=lora_rank,
+            lora_alpha=lora_alpha,
+            target_modules=targets_trans,
+            lora_dropout=lora_dropout,
+            bias="none",
+        )
+        self.transformer = get_peft_model(self.transformer, lora_config_trans)
+
+        # for name, param in self.named_parameters():
+        #     if param.requires_grad:
+        #         print(f"Parameter: {name}, requires_grad: {param.requires_grad}")
+
+    def _setup_trainable_components(self):
+        """config trainable components"""
+
+        self.connector.requires_grad_(True)
 
     def _enable_turbo(self):
         """Enable turbo mode for faster inference"""
@@ -273,7 +327,7 @@ class ConfidenceVLMFlux:
             qwen2_hidden_state_a = self.connector(qwen2_hidden_state_a)
 
         # print("!"*30, f"Before pipeline qwen2_hidden_state_a {qwen2_hidden_state_a.shape}, t5_prompt_embeds {t5_prompt_embeds.shape}, pooled_prompt_embeds {pooled_prompt_embeds.shape}")
-        gen_images = self.pipeline(
+        gen_images, conf_latten = self.pipeline(
             prompt_embeds=qwen2_hidden_state_a,
             t5_prompt_embeds=t5_prompt_embeds if t5_prompt_embeds is not None else None,
             pooled_prompt_embeds=pooled_prompt_embeds,
@@ -284,11 +338,10 @@ class ConfidenceVLMFlux:
             output_type="tensor",
             show_progress_bar=False,
         )
+        # print("-"*30, f"gen_images: {gen_images.shape}")
+        # print("-"*30, f"conf_latten: {conf_latten.shape}")
 
-        gen_images
-
-
-        return gen_images
+        return gen_images, conf_latten
 
 
 

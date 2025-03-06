@@ -241,6 +241,11 @@ if __name__ == '__main__':
     parser.add_argument('--do_flip', default=False, choices=['h', 'v'], help='flip the images horizontally or vertically')
     parser.add_argument('--spatial_scale', type=float, nargs='+', default=[0, 0], help='re-scale the images randomly')
     parser.add_argument('--noyjitter', action='store_true', help='don\'t simulate imperfect rectification')
+    
+    parser.add_argument('--diff_num_inference_steps', type=int, default=28, help="different number of inference steps for different datasets")
+    parser.add_argument('--lora_rank', type=int, default=8, help="rank of LoRA")
+    parser.add_argument('--lora_alpha', type=float, default=132, help="alpha of LoRA")
+    parser.add_argument('--lora_dropout', type=float, default=0.05, help="dropout rate for LoRA")
 
     # DDP setting
     parser.add_argument('--distributed', action='store_true')

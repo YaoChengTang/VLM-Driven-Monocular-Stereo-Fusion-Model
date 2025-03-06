@@ -759,6 +759,7 @@ class FluxPipeline(DiffusionPipeline, FluxLoraLoaderMixin):
         self.maybe_free_model_hooks()
 
         if output_type=="tensor":
+            # print("!"*30)
             return image, latents
 
         if not return_dict:

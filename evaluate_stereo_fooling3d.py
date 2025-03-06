@@ -568,6 +568,8 @@ if __name__ == '__main__':
     parser.add_argument('--refine_pool', action='store_true', help="use pooling in refinement")
     parser.add_argument('--refine_unet', action='store_true', help="use EfficientUnet in refinement")
 
+    parser.add_argument('--diff_num_inference_steps', type=int, default=28, help="different number of inference steps for different datasets")
+
     args = parser.parse_args()
 
     # 重新设定日志文件位置

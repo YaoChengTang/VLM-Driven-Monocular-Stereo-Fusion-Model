@@ -116,8 +116,10 @@ def focal_loss(conf_pred, disp_pred, disp_gt, alpha=0.25, gamma=2.0):
         Tensor: Scalar loss value.
     """
     with torch.no_grad():
-        conf_gt = ((disp_pred - disp_gt).abs() < 5 ) * 1
-        conf_gt = conf_gt.detach()
+        dif = (disp_pred - disp_gt).abs()
+        dif = F.interpolate(dif, scale_factor=1/4, mode='bilinear')
+        conf_gt = ( dif < 5/4 ) * 1
+        conf_gt = conf_gt.detach().float()
 
     bce_loss = F.binary_cross_entropy_with_logits(conf_pred, conf_gt, reduction='none')
     p_t = torch.exp(-bce_loss)

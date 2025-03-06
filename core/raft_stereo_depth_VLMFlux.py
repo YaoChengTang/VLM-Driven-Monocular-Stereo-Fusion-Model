@@ -221,7 +221,7 @@ class RAFTStereoDepthVLMFlux(nn.Module):
             mode="variation",
             imageCount=1,
             aspect_ratio="1:1",
-            num_inference_steps=28,
+            num_inference_steps=self.args.diff_num_inference_steps,
             guidance_scale=7.5,
             denoise_strength=0.8,
             center_x=None,
@@ -236,7 +236,7 @@ class RAFTStereoDepthVLMFlux(nn.Module):
         # refinement
         corr = corr_fn(hor_coords1)
         disp = -hor_coords1 + hor_coords0
-        disp_refine, up_mask, depth_registered, conf = self.refinement(disp, depth, net_list[0], corr, conf_image)
+        disp_refine, up_mask, depth_registered, conf = self.refinement(disp, depth, net_list[0], corr, conf_image, conf_latten)
 
         disp_up = self.upsample_disp(-disp_refine, up_mask)
         depth_registered_up = self.upsample_disp(-depth_registered, up_mask)

@@ -187,7 +187,7 @@ class RefinementMonStereoVLM(nn.Module):
 
         corr_channel = self.args.corr_levels * (self.args.corr_radius*2 + 1)
         self.conf_estimate = nn.Sequential(
-            nn.Conv2d(corr_channel+3, 128, 3, padding=1),
+            nn.Conv2d(corr_channel+3+16, 128, 3, padding=1),
             nn.ReLU(inplace=True),
             nn.Conv2d(128, 128, 3, padding=1),
             nn.ReLU(inplace=True),
@@ -210,10 +210,11 @@ class RefinementMonStereoVLM(nn.Module):
             nn.ReLU(inplace=True),
             nn.Conv2d(256, (factor**2)*9, 1, padding=0))
         
-    def forward(self, disp, depth, hidden, cost_volume, conf_image=None):
+    def forward(self, disp, depth, hidden, cost_volume, conf_image=None, conf_latten=None):
         B, _, H, W = disp.shape
         conf_image = F.interpolate(conf_image, size=(H, W), mode='bilinear', align_corners=False)
-        conf = self.conf_estimate( torch.cat([cost_volume,conf_image], dim=1) )
+        conf_latten = F.interpolate(conf_latten, size=(H, W), mode='bilinear', align_corners=False)
+        conf = self.conf_estimate( torch.cat([cost_volume,conf_image,conf_latten], dim=1) )
         conf_normed = self.norm_conf(conf)   # conf_normed>0.5: stereo is reliable, otherwise trans, reflactive areas, using global pooling
 
         mono_params = self.mono_params_estimate( torch.cat([disp, depth], dim=1) )
