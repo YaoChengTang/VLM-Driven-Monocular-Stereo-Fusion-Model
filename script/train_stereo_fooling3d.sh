@@ -22,8 +22,8 @@ export NCCL_P2P_DISABLE=1
 # export NCCL_SOCKET_IFNAME=eth0  # 设置正确的网络接口
 # export MASTER_ADDR=127.0.0.1
 # export MASTER_PORT=29501
-# export CUDA_VISIBLE_DEVICES=0,1,2,3
-export CUDA_VISIBLE_DEVICES=3
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+# export CUDA_VISIBLE_DEVICES=3,4
 export CUDA_LAUNCH_BLOCKING=1
 
 # "/horizon-bucket/saturn_v_dev/01_users/chengtang.yao/Sceneflow"
@@ -33,9 +33,9 @@ export CUDA_LAUNCH_BLOCKING=1
 # export DATASET_ROOT="/data6/sceneflow/sceneflow"
 export DATASET_ROOT="./datasets/Fooling3D"
 
-export LOG_ROOT="./cloud/runs/log/${FOLDER_NAME}"
-export TB_ROOT="./cloud/runs/tboard/${FOLDER_NAME}"
-export CKPOINT_ROOT="./cloud/runs/ckpoint/${FOLDER_NAME}"
+export LOG_ROOT="./clouds/runs/log/${FOLDER_NAME}"
+export TB_ROOT="./clouds/runs/tboard/${FOLDER_NAME}"
+export CKPOINT_ROOT="./clouds/runs/ckpoint/${FOLDER_NAME}"
 
 # 输出新的路径，确认设置正确
 echo "LOG_ROOT is set to: $LOG_ROOT"
@@ -64,4 +64,4 @@ nproc_per_node=$(echo $CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)  # Count the 
 # torchrun --nnode 1 --nproc_per_node $nproc_per_node --master_port 29504 train_stereo_fooling3d.py --batch_size 24 --train_iters 22 --valid_iters 32 --spatial_scale -0.2 0.4 --saturation_range 0 1.4 --n_downsample 2 --num_steps 70000 --mixed_precision --model_name "RAFTStereoDepthPostFusionNoDepthMonoFea" --depthany_model_dir "/data5/yao/pretrained" --restore_ckpt "/data5/yao/runs/ckpoint/RaftStereoDisp_20240821_142314/RaftStereoDisp.pth" --lr 0.0005 --exp_name "Fooling3D_NoME_PostFusion"
 
 
-torchrun --nnode 1 --nproc_per_node 1 --master_port 29601 train_stereo_fooling3d.py --batch_size 3 --train_iters 22 --valid_iters 32 --spatial_scale -0.2 0.4 --saturation_range 0 1.4 --n_downsample 2 --num_steps 50000 --mixed_precision --model_name "RAFTStereoDepthVLMFlux" --depthany_model_dir "./pretrained/DepthAnything" --lbp_neighbor_offsets "(-5,-5), (5,5), (5,-5), (-5,5), (-3,0), (3,0), (0,-3), (0,3)" --modulation_ratio 1.0 --restore_ckpt "./pretrained/MGStereo/RaftStereoDepthBetaK53_20240920_165346/80000_RaftStereoDepthBetaK53.pth" --lr 0.0005 --exp_name "RAFTStereoDepthVLMFlux"
+torchrun --nnode 1 --nproc_per_node 4 --master_port 29601 train_stereo_fooling3d.py --batch_size 6 --train_iters 22 --valid_iters 32 --spatial_scale -0.2 0.4 --saturation_range 0 1.4 --n_downsample 2 --num_steps 50000 --mixed_precision --model_name "RAFTStereoDepthVLMFlux" --depthany_model_dir "./pretrained/DepthAnything" --lbp_neighbor_offsets "(-5,-5), (5,5), (5,-5), (-5,5), (-3,0), (3,0), (0,-3), (0,3)" --modulation_ratio 1.0 --restore_ckpt "./pretrained/MGStereo/RaftStereoDepthBetaK53_20240920_165346/80000_RaftStereoDepthBetaK53.pth" --lr 0.0005 --exp_name "RAFTStereoDepthVLMFlux"

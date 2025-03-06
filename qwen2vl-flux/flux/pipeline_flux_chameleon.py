@@ -534,6 +534,7 @@ class FluxPipeline(DiffusionPipeline, FluxLoraLoaderMixin):
         callback_on_step_end: Optional[Callable[[int, int, Dict], None]] = None,
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
         max_sequence_length: int = 512,
+        show_progress_bar: bool = True,
     ):
         r"""
         Function invoked when calling the pipeline for generation.

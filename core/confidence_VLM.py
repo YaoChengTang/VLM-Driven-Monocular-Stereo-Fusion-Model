@@ -282,6 +282,7 @@ class ConfidenceVLMFlux:
             height=height,
             width=width,
             output_type="tensor",
+            show_progress_bar=False,
         )
 
         gen_images

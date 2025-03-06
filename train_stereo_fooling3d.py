@@ -25,7 +25,7 @@ LOG_ROOT     = os.getenv('LOG_ROOT', default="logs")
 TB_ROOT      = os.getenv('TB_ROOT', default="")
 CKPOINT_ROOT = os.getenv('CKPOINT_ROOT', default="")
 
-from core.loss import sequence_loss
+from core.loss import sequence_loss, sequence_loss_with_conf
 from core.raft_stereo import RAFTStereo
 from core.stereo_datasets import fetch_dataloader
 from core.utils.ddp import ddp_init, ddp_close, get_model_ddp
@@ -96,6 +96,7 @@ def train(args):
             res = model(image1, image2, iters=args.train_iters,
                         other_params={"fusion_iters": args.train_fusion_iters})
             flow_predictions = res["disp_predictions"]
+            conf = res["conf"]
             assert model.training
 
             corrupted = True
@@ -106,7 +107,8 @@ def train(args):
             if corrupted:
                 continue
 
-            loss, metrics = sequence_loss(flow_predictions, flow, valid)
+            # loss, metrics = sequence_loss(flow_predictions, flow, valid)
+            loss, metrics = sequence_loss_with_conf(flow_predictions, flow, valid, conf)
 
             is_nan = torch.isnan(loss).any().float()
             if is_nan == 1.0:
