@@ -30,6 +30,7 @@ from core.raft_stereo_depth_postfusion_nodepthfea import RAFTStereoDepthPostFusi
 
 import stereo_datasets as datasets
 from core.utils.utils import InputPadder, LoggerCommon
+from core.utils.frame_utils import writePFM
 
 
 NODE_RANK    = os.getenv('NODE_RANK', default=0)
@@ -398,6 +399,15 @@ def validate_fooling3d(model, iters=32, root='', mixed_prec=False, args=None, ev
         image1 = image1[None].cuda()
         image2 = image2[None].cuda()
 
+        # print("*"*10, image1.shape, image2.shape, flow_gt.shape, valid_gt.shape)
+        image1 = F.interpolate(image1, scale_factor=(0.5, 0.5), mode='bilinear', align_corners=True)
+        image2 = F.interpolate(image2, scale_factor=(0.5, 0.5), mode='bilinear', align_corners=True)
+        flow_gt = F.interpolate(flow_gt.unsqueeze(0), scale_factor=(0.5, 0.5), mode='nearest').squeeze(0)
+        flow_gt /= 2
+        valid_gt = F.interpolate(valid_gt.unsqueeze(0).unsqueeze(0), scale_factor=(0.5, 0.5), mode='nearest').squeeze(0).squeeze(0)
+        # valid_gt = 
+        # print("_"*10, image1.shape, image2.shape, flow_gt.shape, valid_gt.shape)
+
         padder = InputPadder(image1.shape, divis_by=32)
         image1, image2 = padder.pad(image1, image2)
 
@@ -407,13 +417,24 @@ def validate_fooling3d(model, iters=32, root='', mixed_prec=False, args=None, ev
         assert flow_pr.shape == flow_gt.shape, (flow_pr.shape, flow_gt.shape)
         epe = torch.sum((flow_pr - flow_gt)**2, dim=0).sqrt()
 
-        epe = epe.flatten()
-        val = valid_gt.flatten() >= 0.5
+        if args si not None and hasattr(args, 'save_flow') and args.save_flow:
+            # Save flow_pr as image
+            imfile1 = paths[0]
+            file_stem = imfile1.split('/')[-2]
+            id = os.path.basename(imfile1).replace(".png","")
+            # print(flow_up.shape)
 
-         # avoid corrupted data
-        if val.sum()<10:
-            logger.info(f"Corrupted valid date: {paths}")
-            continue
+            output_directory = f"/data5/yao/runs/mine3/{file_stem}"
+            os.makedirs(output_directory, exist_ok=True)
+            writePFM(f"{output_directory}/{id}.pfm", (-flow_pr.squeeze()).detach().cpu().numpy())
+
+        epe = epe.flatten()
+        val = valid_gt.flatten() >= 0.
+
+        #  # avoid corrupted data
+        # if val.sum()<10:
+        #     logger.info(f"Corrupted valid date: {paths}")
+        #     continue
 
         out_1 = (epe > 1.0)
         out_2 = (epe > 2.0)
@@ -423,10 +444,10 @@ def validate_fooling3d(model, iters=32, root='', mixed_prec=False, args=None, ev
         image_out_3 = out_3[val].float().mean().item()
         image_epe   = epe[val].mean().item()
 
-        # avoid corrupted data
-        if image_epe>20 or image_out_1>0.95:
-            logger.info(f"Corrupted data: {paths}")
-            continue
+        # # avoid corrupted data
+        # if image_epe>20 or image_out_1>0.95:
+        #     logger.info(f"Corrupted data: {paths}")
+        #     continue
 
         epe_list.append(image_epe)
         out_list_1.append(image_out_1)
@@ -541,7 +562,7 @@ if __name__ == '__main__':
     parser.add_argument('--mast3r_model_path', default='MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth', help="pretrained model path for MaSt3R")
     parser.add_argument('--depthany_model_dir', default='/data5/yao/pretrained', help="directory of pretrained model path for DepthAnything")
     parser.add_argument('--restore_ckpt', help="restore checkpoint", default=None)
-    parser.add_argument('--dataset', help="dataset for evaluation", required=True, choices=["eth3d", "kitti", 'kitti2012', "things", "booster"] + [f"middlebury_{s}" for s in 'FHQ'])
+    parser.add_argument('--dataset', help="dataset for evaluation", required=True, choices=["eth3d", "kitti", 'kitti2012', "things", "booster", "fooling3d"] + [f"middlebury_{s}" for s in 'FHQ'])
     parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
     parser.add_argument('--valid_iters', type=int, default=32, help='number of flow-field updates during forward pass')
     parser.add_argument('--valid_fusion_iters', type=int, default=32, help='number of flow-field adaptive fusion updates during validation forward pass')
@@ -566,6 +587,8 @@ if __name__ == '__main__':
     parser.add_argument('--conf_from_fea', action='store_true', help="confidence in refinement not only from cost volume but also from other features")
     parser.add_argument('--refine_pool', action='store_true', help="use pooling in refinement")
     parser.add_argument('--refine_unet', action='store_true', help="use EfficientUnet in refinement")
+
+    parser.add_argument('--diff_num_inference_steps', type=int, default=28, help="different number of inference steps for different datasets")
 
     args = parser.parse_args()
 
@@ -670,6 +693,14 @@ if __name__ == '__main__':
             args.root = "./datasets/Booster"
         res = validate_booster(model, iters=args.valid_iters, root=args.root, 
                                mixed_prec=use_mixed_precision)
+    
+    elif args.dataset == 'fooling3d':
+        if args.root is None:
+            args.root = "./datasets/Fooling3D"
+        res = validate_fooling3d(model, iters=args.valid_iters, root=args.root,
+                               mixed_prec=use_mixed_precision,
+                               other_params={"fusion_iters": args.valid_fusion_iters},
+                               args=args)
     
     
     # write results into excel

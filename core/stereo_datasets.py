@@ -449,6 +449,7 @@ class Fooling3DDataset(StereoDataset):
 
     def _add_mono(self):
         origin_length = len(self.disparity_list)
+        print(f"using {self.image_set} in fooling3D")
         
         if self.image_set=="training":
             df = pd.read_csv(os.path.join(self.root, 'meta_data/scale_factors.csv'), header=None)

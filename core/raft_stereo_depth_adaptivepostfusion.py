@@ -95,6 +95,7 @@ class RAFTStereoDepthAdaptivePostFusion(nn.Module):
         """ Estimate optical flow between pair of frames """
 
         fusion_iters = other_params["fusion_iters"]
+        # print("-"*10, fusion_iters)
 
         image1 = (2 * (image1 / 255.0) - 1.0).contiguous()
         image2 = (2 * (image2 / 255.0) - 1.0).contiguous()
@@ -217,7 +218,7 @@ class RAFTStereoDepthAdaptivePostFusion(nn.Module):
 
 
             # We do not need to upsample or output intermediate results in test_mode
-            if test_mode and itr < iters-1:
+            if test_mode and itr < fusion_iters-1:
                 continue
 
             # upsample predictions
