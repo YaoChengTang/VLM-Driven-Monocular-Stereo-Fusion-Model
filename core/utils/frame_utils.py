@@ -220,9 +220,9 @@ def loadMaskFooling3D(mask_dir, frame_name, valid):
         sup_mask = mask_image_dict.get(obj_id, {}).get(area_types[1])
 
         if ill_mask is not None:
-            mask[ill_mask == 255] = True
+            mask[ill_mask > 128] = True
         if sup_mask is not None:
-            mask[sup_mask == 255] = True
+            mask[sup_mask > 128] = True
     
     if mask.sum() < 100:
         mask = None
