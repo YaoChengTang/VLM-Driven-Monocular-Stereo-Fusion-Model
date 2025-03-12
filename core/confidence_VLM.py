@@ -1,3 +1,10 @@
+import os
+import sys
+import cv2
+import numpy as np
+import math
+sys.path.insert(0,'qwen2vl-flux')
+
 import torch
 from torch import nn
 from PIL import Image
@@ -6,22 +13,22 @@ from diffusers import AutoencoderKL, FlowMatchEulerDiscreteScheduler
 from flux.transformer_flux import FluxTransformer2DModel
 
 from flux.pipeline_flux_chameleon import FluxPipeline
-# from flux.pipeline_flux_img2img import FluxImg2ImgPipeline
-# from flux.pipeline_flux_inpaint import FluxInpaintPipeline
-# from flux.pipeline_flux_controlnet import FluxControlNetPipeline, FluxControlNetModel
-# from flux.pipeline_flux_controlnet_img2img import FluxControlNetImg2ImgPipeline
-# from flux.controlnet_flux import FluxMultiControlNetModel
-# from flux.pipeline_flux_controlnet_inpainting import FluxControlNetInpaintPipeline
+from flux.pipeline_flux_img2img import FluxImg2ImgPipeline
+from flux.pipeline_flux_inpaint import FluxInpaintPipeline
+from flux.pipeline_flux_controlnet import FluxControlNetPipeline, FluxControlNetModel
+from flux.pipeline_flux_controlnet_img2img import FluxControlNetImg2ImgPipeline
+from flux.controlnet_flux import FluxMultiControlNetModel
+from flux.pipeline_flux_controlnet_inpainting import FluxControlNetInpaintPipeline
 
 from qwen2_vl.modeling_qwen2_vl import Qwen2VLSimplifiedModel
-import os
-import cv2
-import numpy as np
-import math
+
+
+
+
 
 def get_model_path(model_name):
     """Get the full path for a model based on the checkpoints directory."""
-    base_dir = os.getenv('CHECKPOINT_DIR', '/mnt/nvme1/yao/pretrained/Qwen2vl-Flux')  # Allow environment variable override
+    base_dir = os.getenv('CHECKPOINT_DIR', './pretrained/Qwen2vl-Flux')  # Allow environment variable override
     return os.path.join(base_dir, model_name)
 
 # Model paths configuration
@@ -48,24 +55,25 @@ class Qwen2Connector(nn.Module):
     def forward(self, x):
         return self.linear(x)
 
-class FluxModel:
-    def __init__(self, is_turbo=False, device="cuda", required_features=None):
+
+class ConfidenceVLMFlux(nn.Module):
+    def __init__(self, args, is_turbo=False, device="cuda"):
         """
         Initialize FluxModel with specified features
         Args:
             is_turbo: Enable turbo mode for faster inference
             device: Device to run the model on
-            required_features: List of required features ['controlnet', 'depth', 'line', 'sam']
         """
+        super().__init__()
         self.device = torch.device(device)
         self.dtype = torch.bfloat16
-        if required_features is None:
-            required_features = []
 
         self._turbo_imported = False
 
         # Initialize base models (always required)
         self._init_base_models()
+        
+        self._enable_lora(args.lora_rank, args.lora_alpha, args.lora_dropout)
 
         if is_turbo:
             self._enable_turbo()
@@ -101,7 +109,7 @@ class FluxModel:
         t5_embedder_path = os.path.join(MODEL_PATHS['qwen2vl'], "t5_embedder.pt")
         t5_embedder_state_dict = torch.load(t5_embedder_path, map_location=self.device, weights_only=True)
         self.t5_context_embedder.load_state_dict(t5_embedder_state_dict)
-        self.t5_context_embedder.to(self.dtype).to(self.device)
+        self.t5_context_embedder.requires_grad_(False).to(self.dtype).to(self.device)
 
         # Basic components
         self.noise_scheduler = FlowMatchEulerDiscreteScheduler.from_pretrained(MODEL_PATHS['flux'], subfolder="scheduler", shift=1)
@@ -120,7 +128,61 @@ class FluxModel:
                 text_encoder=self.text_encoder,
                 tokenizer=self.tokenizer,
             )
+        self.pipeline.set_progress_bar_config(disable=True)
         print("-"*10, "Completed initialization", "-"*10)
+
+    def _enable_lora(self, lora_rank, lora_alpha, lora_dropout):
+        """Enable LoRA for the transformer model"""
+
+        self._setup_trainable_components()
+
+        ##### LoRA Configuration for qwen2vl #####
+        targets_qwen2vl = [
+            f"model.layers.27.self_attn.q_proj",
+            f"model.layers.27.self_attn.v_proj"
+        ]
+
+        lora_config_qwen2vl = LoraConfig(
+            r=lora_rank,
+            lora_alpha=lora_alpha,
+            target_modules=targets_qwen2vl,
+            lora_dropout=lora_dropout,
+            bias="none",
+        )
+        self.qwen2vl = get_peft_model(self.qwen2vl, lora_config_qwen2vl)
+
+        ##### LoRA Configuration for transformer of Flux #####
+        pattern_trans = r"transformer_blocks.\d+.attn.add_[q|v]_proj"
+        targets_trans = []
+        # cnt = 0
+        for name, _ in self.transformer.named_parameters():
+            # cnt += 1
+            # if cnt<100 or 500 < cnt < 1000:
+            #     print(f"Parameter: {name}", re.match(pattern_trans, name))
+            
+            group = re.search(pattern_trans, name)
+            if group:
+                targets_trans.append(group[0])
+        # print("-"*60)
+        # print(targets_trans, len(targets_trans))
+
+        lora_config_trans = LoraConfig(
+            r=lora_rank,
+            lora_alpha=lora_alpha,
+            target_modules=targets_trans,
+            lora_dropout=lora_dropout,
+            bias="none",
+        )
+        self.transformer = get_peft_model(self.transformer, lora_config_trans)
+
+        # for name, param in self.named_parameters():
+        #     if param.requires_grad:
+        #         print(f"Parameter: {name}, requires_grad: {param.requires_grad}")
+
+    def _setup_trainable_components(self):
+        """config trainable components"""
+
+        self.connector.requires_grad_(True)
 
     def _enable_turbo(self):
         """Enable turbo mode for faster inference"""
@@ -207,24 +269,13 @@ class FluxModel:
         return prompt_embeds
 
     def process_image(self, images):
-        # message = [
-        #     {
-        #         "role": "user",
-        #         "content": [
-        #             {"type": "image", "image": images[0]},
-        #             {"type": "image", "image": images[1]},
-        #             {"type": "image", "image": images[2]},
-        #             {"type": "text", "text": "Describe this image."},
-        #         ]
-        #     },
-        # ]
         messages = [
             [
                 {
                     "role": "user",
                     "content": [
                         {"type": "image", "image": image},
-                        {"type": "text", "text": "Describe this image."},
+                        {"type": "text", "text": "Are there any transparent or reflective objects? Like mirror, glass, window, showcase and so on? If true, reply to me the list of corner coordinates of each objects in the format of (x1,y1,x2,y2,x3,y3,x4,y4) in the image. If false, reply an empty list of corners."},
                     ]
                 }
             ] \
@@ -233,13 +284,13 @@ class FluxModel:
         texts = [self.qwen2vl_processor.apply_chat_template(message, tokenize=False,\
                                                             add_generation_prompt=True) \
                                                         for message in messages]
-        print("-"*30, f"qwen2vl_processor.apply_chat_template: images {len(images)}, texts {len(texts)}, text {texts[0]}")
+        # print("-"*30, f"qwen2vl_processor.apply_chat_template: images {len(images)}, texts {len(texts)}, text {texts[0]}")
 
         with torch.no_grad():
             inputs = self.qwen2vl_processor(text=texts, images=images, padding=True, return_tensors="pt").to(self.device)
-            print("-"*30, f"qwen2vl_processor: inputs {[(key, val.shape) for key, val in inputs.items()]}")
+            # print("-"*30, f"qwen2vl_processor: inputs {[(key, val.shape) for key, val in inputs.items()]}")
             output_hidden_state, image_token_mask, image_grid_thw = self.qwen2vl(**inputs)
-            print("-"*30, f"qwen2vl: output_hidden_state {output_hidden_state.shape}, image_token_mask {image_token_mask.shape}, image_grid_thw {image_grid_thw.shape}")
+            # print("-"*30, f"qwen2vl: output_hidden_state {output_hidden_state.shape}, image_token_mask {image_token_mask.shape}, image_grid_thw {image_grid_thw.shape}")
             image_hidden_state = output_hidden_state[image_token_mask].view(len(texts), -1, output_hidden_state.size(-1))
 
         return image_hidden_state, image_grid_thw
@@ -262,30 +313,21 @@ class FluxModel:
         if len(prompt) != 0:
             t5_prompt_embeds = self.compute_t5_text_embeddings(prompt=prompt, device=self.device)
             t5_prompt_embeds = self.t5_context_embedder(t5_prompt_embeds)
-            print("-"*30, f"t5_prompt_embeds: {t5_prompt_embeds.shape}")
+            # print("-"*30, f"t5_prompt_embeds: {t5_prompt_embeds.shape}")
         # else:
         #     self.qwen2vl_processor = AutoProcessor.from_pretrained(MODEL_PATHS['qwen2vl'], min_pixels=512*28*28, max_pixels=512*28*28)
 
-        print("-"*30, f"{len(input_image_a)} {input_image_a[0].size} images are inputed into process_image")
+        # print("-"*30, f"{len(input_image_a)} {input_image_a[0].size} images are inputed into process_image")
         qwen2_hidden_state_a, image_grid_thw_a = self.process_image(input_image_a)
-        print("-"*30, qwen2_hidden_state_a.shape, image_grid_thw_a.shape) 
+        # print("-"*30, qwen2_hidden_state_a.shape, image_grid_thw_a.shape) 
         # 只有当所有注意力参数都被提供时，才应用注意力机制
         if mode == "variation":
             if center_x is not None and center_y is not None and radius is not None:
                 qwen2_hidden_state_a = self.apply_attention(qwen2_hidden_state_a, image_grid_thw_a, center_x, center_y, radius)
             qwen2_hidden_state_a = self.connector(qwen2_hidden_state_a)
 
-        # gen_images = self.pipeline(
-        #     prompt_embeds=qwen2_hidden_state_a.repeat(batch_size, 1, 1),
-        #     t5_prompt_embeds=t5_prompt_embeds.repeat(batch_size, 1, 1) if t5_prompt_embeds is not None else None,
-        #     pooled_prompt_embeds=pooled_prompt_embeds,
-        #     num_inference_steps=num_inference_steps,
-        #     guidance_scale=guidance_scale,
-        #     height=height,
-        #     width=width,
-        # ).images
-        print("!"*30, f"Before pipeline qwen2_hidden_state_a {qwen2_hidden_state_a.shape}, t5_prompt_embeds {t5_prompt_embeds.shape}, pooled_prompt_embeds {pooled_prompt_embeds.shape}")
-        gen_images = self.pipeline(
+        # print("!"*30, f"Before pipeline qwen2_hidden_state_a {qwen2_hidden_state_a.shape}, t5_prompt_embeds {t5_prompt_embeds.shape}, pooled_prompt_embeds {pooled_prompt_embeds.shape}")
+        gen_images, conf_latten = self.pipeline(
             prompt_embeds=qwen2_hidden_state_a,
             t5_prompt_embeds=t5_prompt_embeds if t5_prompt_embeds is not None else None,
             pooled_prompt_embeds=pooled_prompt_embeds,
@@ -293,7 +335,162 @@ class FluxModel:
             guidance_scale=guidance_scale,
             height=height,
             width=width,
-        ).images
+            output_type="tensor",
+            show_progress_bar=False,
+        )
+        # print("-"*30, f"gen_images: {gen_images.shape}")
+        # print("-"*30, f"conf_latten: {conf_latten.shape}")
+
+        return gen_images, conf_latten
 
 
-        return gen_images
+
+from peft import LoraConfig, get_peft_model
+from torch.optim import AdamW
+from accelerate import Accelerator
+import re
+
+class PrecisionLoRAVLMFlux(ConfidenceVLMFlux):
+    def __init__(self, 
+                 lora_rank=8,
+                 lora_alpha=32,
+                 lora_dropout=0.05,
+                 train_stages=["stage1", "stage3"],  # 控制训练哪些阶段的层
+                 device="cuda"):
+        super().__init__(is_turbo=False, device=device)
+        
+        # 初始化可训练组件
+        self._setup_trainable_components()
+        
+        # LoRA配置
+        self.lora_config = LoraConfig(
+            r=lora_rank,
+            lora_alpha=lora_alpha,
+            target_modules=self._get_lora_targets(train_stages),
+            lora_dropout=lora_dropout,
+            bias="none",
+            modules_to_save=["connector"]  # 保持connector可训练
+        )
+        
+        # 应用LoRA适配
+        self.transformer = get_peft_model(self.transformer, self.lora_config)
+        
+        # 参数冻结管理
+        self._apply_parameter_constraints()
+        
+        # 训练组件初始化
+        self.accelerator = Accelerator()
+        self.optimizer = AdamW(self._get_trainable_params(), lr=2e-5)
+        print(f"总可训练参数：{sum(p.numel() for p in self._get_trainable_params())/1e9:.2f}B")
+
+    def _setup_trainable_components(self):
+        """配置基础可训练组件"""
+        # Qwen2VL最后一层解冻
+        for name, param in self.qwen2vl.named_parameters():
+            if "final_layer" in name:  # 根据实际层名调整
+                param.requires_grad = True
+                
+        # Connector解冻
+        self.connector.requires_grad_(True)
+
+    def _get_lora_targets(self, stages):
+        """动态生成LoRA目标模块"""
+        stage_patterns = {
+            "stage1": r"transformer\.stage1\.layers\.\d+\.(attn1\.to_[qv])",
+            "stage2": r"transformer\.stage2\.layers\.\d+\.(attn2\.to_[qv])",
+            "stage3": r"transformer\.stage3\.layers\.\d+\.(ff\.net\.0\.proj)"
+        }
+        
+        targets = []
+        for stage in stages:
+            if pattern := stage_patterns.get(stage):
+                # 通过正则匹配目标模块
+                for name, _ in self.transformer.named_parameters():
+                    if re.match(pattern, name):
+                        targets.append(name)
+        return list(set(targets))  # 去重
+
+    def _apply_parameter_constraints(self):
+        """应用参数冻结策略"""
+        # 冻结文本相关编码器
+        components = [
+            self.text_encoder,
+            self.text_encoder_two,
+            self.t5_context_embedder,
+            self.vae,
+            self.qwen2vl  # 除最后一层外已冻结
+        ]
+        
+        for component in components:
+            for param in component.parameters():
+                param.requires_grad = False
+
+    def _get_trainable_params(self):
+        """获取所有可训练参数"""
+        return [
+            {"params": self.connector.parameters()},
+            {"params": self.transformer.parameters()},
+            {"params": [p for p in self.qwen2vl.parameters() if p.requires_grad]}
+        ]
+
+    def prepare_training(self):
+        """准备分布式训练环境"""
+        (self.transformer,
+         self.connector,
+         self.optimizer) = self.accelerator.prepare(
+             self.transformer, self.connector, self.optimizer
+         )
+
+    def training_step(self, batch):
+        """训练步骤实现"""
+        images, prompts = batch
+        
+        with self.accelerator.autocast():
+            # 图像特征提取
+            img_features, _ = self.process_image(images)
+            projected_features = self.connector(img_features)
+            
+            # 文本嵌入
+            text_embeds = self.compute_t5_text_embeddings(prompts)
+            
+            # 前向传播
+            outputs = self.transformer(
+                image_embeds=projected_features,
+                t5_prompt_embeds=text_embeds,
+                pooled_prompt_embeds=self.compute_text_embeddings("")
+            )
+            
+            # 重建损失（示例）
+            loss = torch.nn.functional.l1_loss(outputs, images)
+
+        # 梯度更新
+        self.accelerator.backward(loss)
+        self.optimizer.step()
+        self.optimizer.zero_grad()
+        return loss.item()
+
+    def save_adapters(self, output_dir):
+        """保存适配器权重"""
+        # 保存LoRA权重
+        self.transformer.save_pretrained(f"{output_dir}/transformer_lora")
+        
+        # 保存其他可训练组件
+        torch.save({
+            "connector": self.connector.state_dict(),
+            "qwen2vl_final": [p for p in self.qwen2vl.parameters() if p.requires_grad]
+        }, f"{output_dir}/additional_weights.pth")
+
+    def load_adapters(self, input_dir):
+        """加载适配器权重"""
+        # 加载LoRA
+        self.transformer = PeftModel.from_pretrained(
+            self.transformer, 
+            f"{input_dir}/transformer_lora"
+        )
+        
+        # 加载其他组件
+        weights = torch.load(f"{input_dir}/additional_weights.pth")
+        self.connector.load_state_dict(weights["connector"])
+        qwen2vl_params = [p for p in self.qwen2vl.parameters() if p.requires_grad]
+        for p, loaded in zip(qwen2vl_params, weights["qwen2vl_final"]):
+            p.data.copy_(loaded)

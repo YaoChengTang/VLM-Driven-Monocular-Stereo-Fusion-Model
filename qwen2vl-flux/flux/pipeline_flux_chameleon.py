@@ -137,7 +137,7 @@ def retrieve_timesteps(
     return timesteps, num_inference_steps
 
 
-print("-"*10, type(T5EncoderModel))
+# print("-"*10, type(T5EncoderModel))
 
 class FluxPipeline(DiffusionPipeline, FluxLoraLoaderMixin):
     r"""
@@ -534,6 +534,7 @@ class FluxPipeline(DiffusionPipeline, FluxLoraLoaderMixin):
         callback_on_step_end: Optional[Callable[[int, int, Dict], None]] = None,
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
         max_sequence_length: int = 512,
+        show_progress_bar: bool = True,
     ):
         r"""
         Function invoked when calling the pipeline for generation.
@@ -749,10 +750,17 @@ class FluxPipeline(DiffusionPipeline, FluxLoraLoaderMixin):
             latents = self._unpack_latents(latents, height, width, self.vae_scale_factor)
             latents = (latents / self.vae.config.scaling_factor) + self.vae.config.shift_factor
             image = self.vae.decode(latents, return_dict=False)[0]
-            image = self.image_processor.postprocess(image, output_type=output_type)
+            # print("-"*30, f"vae.decode: latents {latents.shape}, image {image.shape} ", image.min(), image.max())
+            if output_type != "tensor":
+                image = self.image_processor.postprocess(image, output_type=output_type)
+                # print("-"*30, f"image: {image[0].size}", type(image))
 
         # Offload all models
         self.maybe_free_model_hooks()
+
+        if output_type=="tensor":
+            # print("!"*30)
+            return image, latents
 
         if not return_dict:
             return (image,)

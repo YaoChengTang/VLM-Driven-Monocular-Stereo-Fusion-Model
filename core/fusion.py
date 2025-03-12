@@ -177,3 +177,64 @@ class RefinementMonStereo(nn.Module):
             sv_intermediate_results(b, f"b", self.args.sv_root)
         
         return disp, up_mask, depth_registered, conf
+
+
+
+class RefinementMonStereoVLM(nn.Module):
+    def __init__(self, args, norm_fn='batch', hidden_dim=32):
+        super(RefinementMonStereoVLM, self).__init__()
+        self.args = args
+
+        corr_channel = self.args.corr_levels * (self.args.corr_radius*2 + 1)
+        self.conf_estimate = nn.Sequential(
+            nn.Conv2d(corr_channel+3+16, 128, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128, 128, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128, 1, 1, padding=0),)
+        self.norm_conf = nn.Sigmoid()
+        
+        self.mono_params_estimate = nn.Sequential(
+                nn.Conv2d(2, 32, 3, padding=1),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(32, 32, 3, padding=1),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(32, 2, 1, padding=0)
+        )
+        if self.args.refine_pool:
+            self.mono_params_estimate.add_module("global_avg_pool", nn.AdaptiveAvgPool2d((1, 1)))
+
+        factor = 2**self.args.n_downsample
+        self.mask = nn.Sequential(
+            nn.Conv2d(hidden_dim+1, 256, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, (factor**2)*9, 1, padding=0))
+        
+    def forward(self, disp, depth, hidden, cost_volume, conf_image=None, conf_latten=None):
+        B, _, H, W = disp.shape
+        conf_image = F.interpolate(conf_image, size=(H, W), mode='bilinear', align_corners=False)
+        conf_latten = F.interpolate(conf_latten, size=(H, W), mode='bilinear', align_corners=False)
+        conf = self.conf_estimate( torch.cat([cost_volume,conf_image,conf_latten], dim=1) )
+        conf_normed = self.norm_conf(conf)   # conf_normed>0.5: stereo is reliable, otherwise trans, reflactive areas, using global pooling
+
+        mono_params = self.mono_params_estimate( torch.cat([disp, depth], dim=1) )
+        a, b = torch.split(mono_params, 1, dim=1)
+        mask = conf_normed > 0.5
+        mean_a = (a * mask).sum(dim=[2, 3], keepdim=True) / mask.sum(dim=[2, 3], keepdim=True)
+        mean_b = (b * mask).sum(dim=[2, 3], keepdim=True) / mask.sum(dim=[2, 3], keepdim=True)
+        a = torch.where(conf_normed < 0.5, mean_a, a)
+        b = torch.where(conf_normed < 0.5, mean_b, b)
+        depth_registered = depth * a + b
+        
+        disp = disp * conf_normed + (1-conf_normed) * depth_registered
+
+        up_mask= self.mask( torch.cat([hidden, disp], dim=1) )
+
+        if self.args is not None and hasattr(self.args, "vis_inter") and self.args.vis_inter:
+            sv_intermediate_results(disp, f"disp_refine", self.args.sv_root)
+            sv_intermediate_results(depth_registered, f"depth_registered", self.args.sv_root)
+            sv_intermediate_results(conf_normed, f"conf", self.args.sv_root)
+            sv_intermediate_results(a, f"a", self.args.sv_root)
+            sv_intermediate_results(b, f"b", self.args.sv_root)
+        
+        return disp, up_mask, depth_registered, conf

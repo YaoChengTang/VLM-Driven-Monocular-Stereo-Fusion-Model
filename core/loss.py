@@ -61,6 +61,72 @@ def sequence_loss(flow_preds, flow_gt, valid, loss_gamma=0.9, max_flow=700):
     return flow_loss, metrics
 
 
+def sequence_loss_with_conf(flow_preds, flow_gt, valid, conf, loss_gamma=0.9, max_flow=700):
+    """ Loss function defined over sequence of flow predictions """
+
+    n_predictions = len(flow_preds)
+    assert n_predictions >= 1
+    flow_loss = 0.0
+
+    # exlude invalid pixels and extremely large diplacements
+    mag = torch.sum(flow_gt**2, dim=1).sqrt()
+
+    # exclude extremly large displacements
+    valid = ((valid >= 0.5) & (mag < max_flow)).unsqueeze(1)
+    assert valid.shape == flow_gt.shape, [valid.shape, flow_gt.shape]
+    assert not torch.isinf(flow_gt[valid.bool()]).any()
+
+    for i in range(n_predictions):
+        if not torch.isnan(flow_preds[i]).any() and not torch.isinf(flow_preds[i]).any():
+            # We adjust the loss_gamma so it is consistent for any number of RAFT-Stereo iterations
+            adjusted_loss_gamma = loss_gamma**(15/(n_predictions - 1))
+            i_weight = adjusted_loss_gamma**(n_predictions - i - 1)
+            i_loss = (flow_preds[i] - flow_gt).abs()
+            assert i_loss.shape == valid.shape, [i_loss.shape, valid.shape, flow_gt.shape, flow_preds[i].shape]
+            flow_loss += i_weight * i_loss[valid.bool()].mean()
+
+    epe = torch.sum((flow_preds[-1] - flow_gt)**2, dim=1).sqrt()
+    epe = epe.view(-1)[valid.view(-1)]
+    
+    disp_before_refine = flow_preds[-3]
+    conf_loss = focal_loss(conf, disp_before_refine, flow_gt)
+
+    loss = flow_loss + conf_loss
+
+    metrics = {
+        'epe': epe.mean().item(),
+        '1px': (epe < 1).float().mean().item(),
+        '3px': (epe < 3).float().mean().item(),
+        '5px': (epe < 5).float().mean().item(),
+    }
+
+    return loss, metrics
+
+
+def focal_loss(conf_pred, disp_pred, disp_gt, alpha=0.25, gamma=2.0):
+    """
+    Compute the focal loss between predicted confidence and ground truth confidence.
+
+    Args:
+        conf_pred (Tensor): Predicted confidence map (should be passed through sigmoid).
+        conf_gt (Tensor): Ground truth confidence map.
+        gamma (float): Focusing parameter to adjust the loss weight on hard samples.
+
+    Returns:
+        Tensor: Scalar loss value.
+    """
+    with torch.no_grad():
+        dif = (disp_pred - disp_gt).abs()
+        dif = F.interpolate(dif, scale_factor=1/4, mode='bilinear')
+        conf_gt = ( dif < 5/4 ) * 1
+        conf_gt = conf_gt.detach().float()
+
+    bce_loss = F.binary_cross_entropy_with_logits(conf_pred, conf_gt, reduction='none')
+    p_t = torch.exp(-bce_loss)
+    loss = (alpha * ((1 - p_t) ** gamma) * bce_loss).mean()
+    return loss
+
+
 def my_loss(res, flow_gt, valid, loss_gamma=0.9, max_flow=700):
     pass
 

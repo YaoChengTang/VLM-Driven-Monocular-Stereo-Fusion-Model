@@ -1652,7 +1652,9 @@ class FluxLoraLoaderMixin(LoraBaseMixin):
 
     @classmethod
     # Copied from diffusers.loaders.lora_pipeline.SD3LoraLoaderMixin.load_lora_into_transformer
-    def load_lora_into_transformer(cls, state_dict, transformer, adapter_name=None, _pipeline=None):
+    def load_lora_into_transformer(
+        cls, state_dict, transformer, adapter_name=None, _pipeline=None
+    ):
         """
         This will load the LoRA layers specified in `state_dict` into `transformer`.
 
