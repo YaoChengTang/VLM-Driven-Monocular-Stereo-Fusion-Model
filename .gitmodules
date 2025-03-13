@@ -2,10 +2,3 @@
 	path = mast3r
 	url = git@github.com:naver/mast3r.git
 	ignore = all
-[submodule "Depth-Anything-V2"]
-	path = Depth-Anything-V2
-	url = git@github.com:DepthAnything/Depth-Anything-V2.git
-	ignore = all
-# [submodule "Depth-Anything-V2"]
-# 	path = Depth-Anything-V2
-# 	url = ./Depth-Anything-V2
