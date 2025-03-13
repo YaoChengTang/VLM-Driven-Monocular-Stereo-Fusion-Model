@@ -29,8 +29,9 @@ class AffineInvariantLoss(nn.Module):
             target_median = target[valid_mask].median()
             pred_scale    = (pred-pred_median).mean()
             target_scale  = (target - target_median).mean()
-        pred   = (pred - pred_median) / pred_scale
-        target = (target - target_median) / target_scale
+            target = (target - target_median) / target_scale * pred_scale + pred_median  # avoid unstable opt for pred when pred_scale is too small
+        # pred   = (pred - pred_median) / pred_scale
+        # target = (target - target_median) / target_scale
         
         valid_mask = valid_mask.detach()
         loss = F.l1_loss(target[valid_mask], pred[valid_mask])

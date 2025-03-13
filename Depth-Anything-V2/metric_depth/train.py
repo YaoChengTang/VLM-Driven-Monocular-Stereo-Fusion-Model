@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader
 from torch.optim import AdamW
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
+import torchvision.utils as vutils
 
 from dataset.hypersim import Hypersim
 from dataset.kitti import KITTI
@@ -23,6 +24,23 @@ from util.dist_helper import setup_distributed
 from util.loss import SiLogLoss, AffineInvariantLoss
 from util.metric import eval_depth
 from util.utils import init_log
+
+try:
+    from torch.cuda.amp import GradScaler
+except:
+    # dummy GradScaler for PyTorch < 1.6
+    class GradScaler:
+        def __init__(self):
+            pass
+        def scale(self, loss):
+            return loss
+        def unscale_(self, optimizer):
+            pass
+        def step(self, optimizer):
+            optimizer.step()
+        def update(self):
+            pass
+
 
 
 parser = argparse.ArgumentParser(description='Depth Anything V2 for Metric Depth Estimation')
@@ -128,6 +146,8 @@ def main():
                        {'params': [param for name, param in model.named_parameters() if 'pretrained' not in name], 'lr': args.lr * 10.0}],
                       lr=args.lr, betas=(0.9, 0.999), weight_decay=0.01)
     
+    scaler = GradScaler(enabled=False)
+
     total_iters = args.epochs * len(trainloader)
     
     previous_best = {'d1': 0, 'd2': 0, 'd3': 0, 'abs_rel': 100, 'sq_rel': 100, 'rmse': 100, 'rmse_log': 100, 'log10': 100, 'silog': 100}
@@ -156,35 +176,79 @@ def main():
         for i, (path_info, *data_blob) in enumerate(trainloader):
             optimizer.zero_grad()
             
-            image1, image2, flow, valid = [x.cuda() for x in data_blob]
+            with torch.no_grad():
+                image1, image2, flow, valid = [x.cuda() for x in data_blob]
 
-            img = (image1/255.0 - mean) / std
-            depth = -flow[:,0]
-            valid_mask = valid
-            # print(f"img: {img.shape}, depth: {depth.shape}, valid_mask: {valid_mask.shape}")
+                img = (image1/255.0 - mean) / std
+                depth = -flow[:,0]
+                valid_mask = valid
+                # print(f"img: {img.shape}, depth: {depth.shape}, valid_mask: {valid_mask.shape}")
+                
+                if random.random() < 0.5:
+                    img = img.flip(-1)
+                    depth = depth.flip(-1)
+                    valid_mask = valid_mask.flip(-1)
             
-            if random.random() < 0.5:
-                img = img.flip(-1)
-                depth = depth.flip(-1)
-                valid_mask = valid_mask.flip(-1)
-            
-            pred = model(img)
-            # print(f"pred: {pred.shape}")
-            
-            loss = criterion(pred, depth, (valid_mask == 1) & (depth > 0))
+            try:
+                pred = model(img)
+                # print(f"pred: {pred.shape}")
 
-            if torch.isnan(loss):
-                print(f"{rank} Skipping iteration {i} due to NaN loss: {path_info[0]}")
-            
-            loss_is_nan = torch.tensor(float(not torch.isfinite(loss)), device="cuda")
-            dist.all_reduce(loss_is_nan, op=dist.ReduceOp.SUM)
-            if loss_is_nan.item() > 0:
-                optimizer.zero_grad()
-                torch.cuda.empty_cache()
-                continue
-            
-            loss.backward()
-            optimizer.step()
+                loss = criterion(pred, depth, (valid_mask == 1) & (depth > 0))
+
+                # if torch.isnan(loss):
+                #     print(f"{rank} Skipping iteration {i} due to NaN loss: {path_info[0]}")
+                # loss_is_nan = torch.tensor(float(not torch.isfinite(loss)), device="cuda")
+                # dist.all_reduce(loss_is_nan, op=dist.ReduceOp.SUM)
+                # if loss_is_nan.item() > 0:
+                #     optimizer.zero_grad()
+                #     is_nan = torch.isnan(loss).any().float()
+                #     continue
+
+                is_nan = torch.isnan(loss).any().float()
+                if is_nan == 1.0:
+                    current_memory = torch.cuda.memory_allocated()
+                    max_memory = torch.cuda.max_memory_allocated()
+                    print(f"NaN loss detected at {i} iteration: {path_info[0]}" + \
+                            f", valid+flow: {((valid >= 0.5) & (torch.sum(flow**2, dim=1).sqrt() < 1000)).unsqueeze(1).sum()}" + \
+                            f", valid: {(valid >= 0.5).sum()}"  + \
+                            f", flow: {(torch.sum(flow**2, dim=1).sqrt() < 1000).sum()}" + \
+                            f", {valid.shape}, {flow.shape}" + \
+                            f", flow min: {torch.sum(flow**2, dim=1).sqrt().min()}" + \
+                            f", flow max: {torch.sum(flow**2, dim=1).sqrt().max()}" + \
+                            f", pred min: {pred.min()}" + \
+                            f", pred max: {pred.max()}" + \
+                            f", cur mem: {current_memory / 1024**2:.2f} MB" + \
+                            f", max mem: {max_memory / 1024**2:.2f} MB")
+                    if rank == 0:
+                        # print("-"*10, (valid >= 0.5).unsqueeze(1).float().dtype)
+                        vutils.save_image(image1[0]/255, "image1.png")
+                        vutils.save_image((valid >= 0.5).unsqueeze(1).float()[0], "output_valid.png")
+                        vutils.save_image((-flow[:,0]).float()[0] / (-flow[:,0]).float()[0].max(), "output_flow.png")
+                dist.all_reduce(is_nan, op=dist.ReduceOp.MAX)
+                if is_nan.item() == 1.0:
+                    optimizer.zero_grad()
+                    # del loss, img, pred  # 释放 batch 数据
+                    # torch.cuda.empty_cache()
+                    continue
+                
+                # loss.backward()
+                # torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                # optimizer.step()
+
+                scaler.scale(loss).backward()
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+
+                scaler.step(optimizer)
+                # scheduler.step()
+                scaler.update()
+
+            except Exception as err:
+                current_memory = torch.cuda.memory_allocated()
+                max_memory = torch.cuda.max_memory_allocated()
+                raise Exception(err, f"iteration: {i}, path_info[0]: {path_info[0]}, img: {img.shape}, depth: {depth.shape}, valid_mask: {valid_mask.shape}" + \
+                                f", {current_memory / 1024**2:.2f} MB" + \
+                                f", {max_memory / 1024**2:.2f} MB")
             
             total_loss += loss.item()
             
@@ -202,7 +266,7 @@ def main():
                 logger.info('Iter: {}/{}, LR: {:.7f}, Loss: {:.3f}'.format(i, len(trainloader), optimizer.param_groups[0]['lr'], loss.item()))
                 writer.add_images('train/image1', image1[:4]/255, iters)
                 writer.add_images('train/depth', depth[:4].unsqueeze(1)/depth[:4].max(), iters)
-                writer.add_images('train/pred', pred[:4].unsqueeze(1)/depth[:4].max(), iters)
+                writer.add_images('train/pred', pred[:4].unsqueeze(1), iters)
                 writer.add_images('train/valid_mask', valid_mask[:4].unsqueeze(1), iters)
             # break
 
