@@ -64,6 +64,8 @@ parser.add_argument('--do_flip', default=False, choices=['h', 'v'], help='flip t
 parser.add_argument('--spatial_scale', type=float, nargs='+', default=[0, 0], help='re-scale the images randomly')
 parser.add_argument('--noyjitter', action='store_true', help='don\'t simulate imperfect rectification')
 
+parser.add_argument('--depth_as_mask', action='store_true', help='using depth>0 as mask')
+
 
 def main():
     args = parser.parse_args()
@@ -181,7 +183,10 @@ def main():
 
                 img = (image1/255.0 - mean) / std
                 depth = -flow[:,0]
-                valid_mask = valid
+                if args.depth_as_mask:
+                    valid_mask = depth>0
+                else:
+                    valid_mask = valid
                 # print(f"img: {img.shape}, depth: {depth.shape}, valid_mask: {valid_mask.shape}")
                 
                 if random.random() < 0.5:
@@ -291,7 +296,10 @@ def main():
             
             img = (image1/255.0 - mean) / std
             depth = -flow[:,0]
-            valid_mask = valid
+            if args.depth_as_mask:
+                valid_mask = depth>0
+            else:
+                valid_mask = valid
             # print(f"img: {img.shape}, depth: {depth.shape}, valid_mask: {valid_mask.shape}")
             
             with torch.no_grad():
