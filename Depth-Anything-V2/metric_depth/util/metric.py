@@ -4,6 +4,18 @@ import torch
 def eval_depth(pred, target):
     assert pred.shape == target.shape
 
+    target = target / target.max()
+    pred   = pred / pred.max() 
+
+    pred_median   = pred.median()
+    target_median = target.median()
+    pred_scale    = (pred - pred_median).mean()
+    target_scale  = (target - target_median).mean()
+
+    target = (target - target_median) / target_scale
+    pred   = (pred - pred_median) / pred_scale
+
+
     thresh = torch.max((target / pred), (pred / target))
 
     d1 = torch.sum(thresh < 1.25).float() / len(thresh)
