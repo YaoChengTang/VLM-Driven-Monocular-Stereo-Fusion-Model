@@ -200,7 +200,7 @@ class RAFTStereoDepthAdaptiveSingle(nn.Module):
 
 
             # We do not need to upsample or output intermediate results in test_mode
-            if test_mode and itr < iters-1:
+            if test_mode and itr < fusion_iters - 1:
                 continue
 
             # upsample predictions

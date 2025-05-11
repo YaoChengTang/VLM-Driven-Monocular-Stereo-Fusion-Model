@@ -139,7 +139,7 @@ class RAFTStereoDepthPostFusion(nn.Module):
 
             # F(t+1) = F(t) + \Delta(t)
             hor_coords1 = hor_coords1 + delta_disp
-
+            # print(itr)
             # We do not need to upsample or output intermediate results in test_mode
             if test_mode and itr < iters-1:
                 continue

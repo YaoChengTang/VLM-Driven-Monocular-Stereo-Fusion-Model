@@ -46,7 +46,7 @@ from core.raft_stereo_depth_postfusion import RAFTStereoDepthPostFusion
 from core.raft_stereo_depth_adaptivepostfusion import RAFTStereoDepthAdaptivePostFusion
 from core.raft_stereo_depth_adaptivesingle import RAFTStereoDepthAdaptiveSingle
 from core.raft_stereo_depth_postfusion_nodepthfea import RAFTStereoDepthPostFusionNoDepthMonoFea
-from core.raft_stereo_depth_VLMFlux import RAFTStereoDepthVLMFlux
+# from core.raft_stereo_depth_VLMFlux import RAFTStereoDepthVLMFlux
 
 
 def setup_distributed(args):
