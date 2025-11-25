@@ -193,7 +193,8 @@ class Visualizer:
         elif self.dataset.lower()=="booster" :
             frame_utils.writeDispBooster(sv_path, flow_pr)
         else:
-            raise Exception("such daatset is not supported: {}".format(dataset))
+            frame_utils.writeDispKITTI(sv_path, flow_pr)
+            # raise Exception("such daatset is not supported: {}".format(self.dataset))
         return True
     
     def get_xpx(self, key_list):

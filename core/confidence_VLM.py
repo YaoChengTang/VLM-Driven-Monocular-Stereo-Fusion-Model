@@ -71,9 +71,12 @@ class ConfidenceVLMFlux(nn.Module):
         self._turbo_imported = False
 
         # Initialize base models (always required)
+        print(MODEL_PATHS)
         self._init_base_models()
-        
-        self._enable_lora(args.lora_rank, args.lora_alpha, args.lora_dropout)
+
+        if self.training and \
+           "lora_alpha" in args and args.lora_rank > 0:
+            self._enable_lora(args.lora_rank, args.lora_alpha, args.lora_dropout)
 
         if is_turbo:
             self._enable_turbo()
@@ -344,153 +347,3 @@ class ConfidenceVLMFlux(nn.Module):
         return gen_images, conf_latten
 
 
-
-from peft import LoraConfig, get_peft_model
-from torch.optim import AdamW
-from accelerate import Accelerator
-import re
-
-class PrecisionLoRAVLMFlux(ConfidenceVLMFlux):
-    def __init__(self, 
-                 lora_rank=8,
-                 lora_alpha=32,
-                 lora_dropout=0.05,
-                 train_stages=["stage1", "stage3"],  # 控制训练哪些阶段的层
-                 device="cuda"):
-        super().__init__(is_turbo=False, device=device)
-        
-        # 初始化可训练组件
-        self._setup_trainable_components()
-        
-        # LoRA配置
-        self.lora_config = LoraConfig(
-            r=lora_rank,
-            lora_alpha=lora_alpha,
-            target_modules=self._get_lora_targets(train_stages),
-            lora_dropout=lora_dropout,
-            bias="none",
-            modules_to_save=["connector"]  # 保持connector可训练
-        )
-        
-        # 应用LoRA适配
-        self.transformer = get_peft_model(self.transformer, self.lora_config)
-        
-        # 参数冻结管理
-        self._apply_parameter_constraints()
-        
-        # 训练组件初始化
-        self.accelerator = Accelerator()
-        self.optimizer = AdamW(self._get_trainable_params(), lr=2e-5)
-        print(f"总可训练参数：{sum(p.numel() for p in self._get_trainable_params())/1e9:.2f}B")
-
-    def _setup_trainable_components(self):
-        """配置基础可训练组件"""
-        # Qwen2VL最后一层解冻
-        for name, param in self.qwen2vl.named_parameters():
-            if "final_layer" in name:  # 根据实际层名调整
-                param.requires_grad = True
-                
-        # Connector解冻
-        self.connector.requires_grad_(True)
-
-    def _get_lora_targets(self, stages):
-        """动态生成LoRA目标模块"""
-        stage_patterns = {
-            "stage1": r"transformer\.stage1\.layers\.\d+\.(attn1\.to_[qv])",
-            "stage2": r"transformer\.stage2\.layers\.\d+\.(attn2\.to_[qv])",
-            "stage3": r"transformer\.stage3\.layers\.\d+\.(ff\.net\.0\.proj)"
-        }
-        
-        targets = []
-        for stage in stages:
-            if pattern := stage_patterns.get(stage):
-                # 通过正则匹配目标模块
-                for name, _ in self.transformer.named_parameters():
-                    if re.match(pattern, name):
-                        targets.append(name)
-        return list(set(targets))  # 去重
-
-    def _apply_parameter_constraints(self):
-        """应用参数冻结策略"""
-        # 冻结文本相关编码器
-        components = [
-            self.text_encoder,
-            self.text_encoder_two,
-            self.t5_context_embedder,
-            self.vae,
-            self.qwen2vl  # 除最后一层外已冻结
-        ]
-        
-        for component in components:
-            for param in component.parameters():
-                param.requires_grad = False
-
-    def _get_trainable_params(self):
-        """获取所有可训练参数"""
-        return [
-            {"params": self.connector.parameters()},
-            {"params": self.transformer.parameters()},
-            {"params": [p for p in self.qwen2vl.parameters() if p.requires_grad]}
-        ]
-
-    def prepare_training(self):
-        """准备分布式训练环境"""
-        (self.transformer,
-         self.connector,
-         self.optimizer) = self.accelerator.prepare(
-             self.transformer, self.connector, self.optimizer
-         )
-
-    def training_step(self, batch):
-        """训练步骤实现"""
-        images, prompts = batch
-        
-        with self.accelerator.autocast():
-            # 图像特征提取
-            img_features, _ = self.process_image(images)
-            projected_features = self.connector(img_features)
-            
-            # 文本嵌入
-            text_embeds = self.compute_t5_text_embeddings(prompts)
-            
-            # 前向传播
-            outputs = self.transformer(
-                image_embeds=projected_features,
-                t5_prompt_embeds=text_embeds,
-                pooled_prompt_embeds=self.compute_text_embeddings("")
-            )
-            
-            # 重建损失（示例）
-            loss = torch.nn.functional.l1_loss(outputs, images)
-
-        # 梯度更新
-        self.accelerator.backward(loss)
-        self.optimizer.step()
-        self.optimizer.zero_grad()
-        return loss.item()
-
-    def save_adapters(self, output_dir):
-        """保存适配器权重"""
-        # 保存LoRA权重
-        self.transformer.save_pretrained(f"{output_dir}/transformer_lora")
-        
-        # 保存其他可训练组件
-        torch.save({
-            "connector": self.connector.state_dict(),
-            "qwen2vl_final": [p for p in self.qwen2vl.parameters() if p.requires_grad]
-        }, f"{output_dir}/additional_weights.pth")
-
-    def load_adapters(self, input_dir):
-        """加载适配器权重"""
-        # 加载LoRA
-        self.transformer = PeftModel.from_pretrained(
-            self.transformer, 
-            f"{input_dir}/transformer_lora"
-        )
-        
-        # 加载其他组件
-        weights = torch.load(f"{input_dir}/additional_weights.pth")
-        self.connector.load_state_dict(weights["connector"])
-        qwen2vl_params = [p for p in self.qwen2vl.parameters() if p.requires_grad]
-        for p, loaded in zip(qwen2vl_params, weights["qwen2vl_final"]):
-            p.data.copy_(loaded)
