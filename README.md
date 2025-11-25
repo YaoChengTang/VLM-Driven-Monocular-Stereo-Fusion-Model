@@ -1,3 +1,7 @@
 # VLM-Driven Monocular-Stereo Fusion Model
 
-The code for all experiments.
+## Install
+```
+conda env create -n illusion -f envs/environment.yaml
+conda activate illusion
+```

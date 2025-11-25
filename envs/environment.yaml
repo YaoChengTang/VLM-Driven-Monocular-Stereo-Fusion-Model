@@ -1,19 +1,70 @@
-name: raftstereo
+name: illusion
+
 channels:
   - pytorch
+  - conda-forge
   - bioconda
   - defaults
+
 dependencies:
-  - python=3.7.6
-  - pytorch=1.7.0
-  - torchvision=0.8.1
-  - cudatoolkit=10.2.89
-  - matplotlib
-  - tensorboard
+  - python=3.11
+  - pip
+
+  # ===== Core scientific & visualization libraries (installed via conda for better stability) =====
+  - numpy
   - scipy
-  - opencv
-  - tqdm
+  - pandas
   - opt_einsum
+  - matplotlib
+  - matplotlib-inline
   - imageio
+  - tifffile
   - scikit-image
-  - p7zip
+
+  # ===== System & utility dependencies =====
+  - p7zip              # 7zip command-line compression tool, not via pip
+  - ninja              # required for building CUDA kernels
+  - tensorboard
+  - tqdm
+  - pyyaml
+
+  - pip:
+      # ===== Development & configuration utilities =====
+      - wandb
+      - ipython
+      - uvicorn
+      - pydantic
+      - omegaconf
+      - attrdict3
+      - tabulate
+
+      # ===== Machine learning / geometry & math utils =====
+      - einops
+      - scikit-learn
+      - roma
+      - trimesh
+
+      # ===== Visualization / WebUI & tools =====
+      - gradio
+      - pyglet<2
+
+      # ===== Image processing (prefer headless OpenCV for servers / GPU machines) =====
+      - Pillow>=10.0.0
+      - opencv-python-headless>=4.8.0
+
+      # ===== Core AI / ML stack (latest versions via pip to ensure compatibility) =====
+      - torch>=2.4.1
+      - torchvision>=0.15.2
+      - transformers==4.45.0
+      - huggingface-hub[torch]>=0.22
+      - diffusers==0.30.0
+      - accelerate==0.33.0
+      - protobuf>=4.23.4
+      - sentencepiece==0.2.0
+      - controlnet_aux
+      - optimum
+      - optimum-quanto
+      - sam2
+      - mediapipe
+      - xformers
+      - safetensors
